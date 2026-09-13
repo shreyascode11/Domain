@@ -1,0 +1,297 @@
+@import "tailwindcss";
+
+/*
+ * DOMAIN theme — "the cartographer's night".
+ * Ink-blue panels trimmed in antique gold, teal for anything you can use,
+ * ember for the hero and warnings. Titles are inscriptions; the HUD is a
+ * condensed game menu; code is code.
+ */
+
+@theme inline {
+  --color-ink-950: #05080f;
+  --color-ink-900: #0a1020;
+  --color-ink-850: #0e1629;
+  --color-ink-800: #131d34;
+  --color-ink-700: #1b2843;
+  --color-ink-600: #263656;
+  --color-ink-500: #3a4c70;
+  --color-ink-400: #6b7ea3;
+  --color-ink-300: #9aabc9;
+  --color-ink-200: #c7d2e6;
+  --color-ink-100: #e8edf6;
+
+  --color-gold-200: #f7e6b5;
+  --color-gold-300: #eed08a;
+  --color-gold-400: #e0b85f;
+  --color-gold-500: #c79a3e;
+  --color-gold-600: #9b7328;
+  --color-gold-700: #6b4e1a;
+
+  --color-teal-300: #7df3e1;
+  --color-teal-400: #3fe0c8;
+  --color-teal-500: #18b8a3;
+  --color-teal-700: #0d5d55;
+
+  --color-ember-300: #ffc28a;
+  --color-ember-400: #ff9f43;
+  --color-ember-500: #f0781c;
+  --color-ember-700: #8a3d0b;
+
+  --color-jade-400: #5bd99a;
+  --color-jade-600: #2a8a5c;
+  --color-blood-400: #ff6b6b;
+  --color-blood-600: #b83838;
+
+  --color-parchment-100: #f6ecd4;
+  --color-parchment-200: #ebdcb8;
+  --color-parchment-400: #c9b284;
+  --color-parchment-700: #6a5533;
+
+  --font-display: var(--font-display-face), "Times New Roman", serif;
+  --font-hud: var(--font-hud-face), "Arial Narrow", sans-serif;
+  --font-sans: var(--font-body-face), system-ui, sans-serif;
+  --font-mono: var(--font-mono-face), ui-monospace, monospace;
+}
+
+:root {
+  --background: #05080f;
+  --foreground: #e8edf6;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+}
+
+/* ——— Surfaces ——————————————————————————————————————————— */
+
+/* The night-map backdrop: soft glows over faint topographic contours. */
+.bg-night-map {
+  background-color: #070b16;
+  background-image:
+    radial-gradient(1200px 600px at 15% -10%, rgba(63, 224, 200, 0.07), transparent 60%),
+    radial-gradient(900px 500px at 110% 110%, rgba(240, 120, 28, 0.08), transparent 60%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='520' height='520' viewBox='0 0 520 520'%3E%3Cg fill='none' stroke='%23c79a3e' stroke-opacity='0.055' stroke-width='1'%3E%3Cpath d='M-20 120 C 80 60, 160 180, 260 120 S 440 60, 540 130'/%3E%3Cpath d='M-20 160 C 90 100, 170 220, 270 160 S 450 100, 540 170'/%3E%3Cpath d='M-20 200 C 100 140, 180 260, 280 200 S 460 140, 540 210'/%3E%3Cpath d='M-20 330 C 70 290, 150 390, 250 340 S 430 280, 540 350'/%3E%3Cpath d='M-20 370 C 80 330, 160 430, 260 380 S 440 320, 540 390'/%3E%3Ccircle cx='400' cy='430' r='40'/%3E%3Ccircle cx='400' cy='430' r='70'/%3E%3Ccircle cx='400' cy='430' r='100'/%3E%3Ccircle cx='110' cy='40' r='30'/%3E%3Ccircle cx='110' cy='40' r='56'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* A game panel: dark glass, gold hairline, chamfered corners. */
+.panel {
+  position: relative;
+  background:
+    linear-gradient(180deg, rgba(27, 40, 67, 0.92), rgba(10, 16, 32, 0.95));
+  border: 1px solid rgba(199, 154, 62, 0.42);
+  box-shadow:
+    inset 0 1px 0 rgba(247, 230, 181, 0.08),
+    inset 0 0 0 1px rgba(5, 8, 15, 0.6),
+    0 18px 40px -12px rgba(0, 0, 0, 0.7);
+  clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px);
+}
+.panel-soft {
+  background: linear-gradient(180deg, rgba(19, 29, 52, 0.78), rgba(10, 16, 32, 0.82));
+  border: 1px solid rgba(154, 171, 201, 0.14);
+  backdrop-filter: blur(6px);
+}
+
+/* Parchment, for the fable and the map. */
+.parchment {
+  color: #2b2012;
+  background-color: #efe0bb;
+  background-image:
+    radial-gradient(120% 90% at 50% 40%, rgba(255, 250, 235, 0.55), transparent 60%),
+    radial-gradient(60% 50% at 0% 0%, rgba(120, 84, 34, 0.25), transparent 70%),
+    radial-gradient(60% 50% at 100% 100%, rgba(120, 84, 34, 0.3), transparent 70%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.35 0 0 0 0 0.25 0 0 0 0 0.1 0 0 0 0.18 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+  box-shadow: inset 0 0 60px rgba(107, 78, 26, 0.35), 0 20px 50px -15px rgba(0, 0, 0, 0.8);
+}
+
+/* Gold ornamental divider. */
+.rule-ornament {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(224, 184, 95, 0.7) 20%, rgba(224, 184, 95, 0.7) 80%, transparent);
+  position: relative;
+}
+.rule-ornament::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  background: #e0b85f;
+  transform: translate(-50%, -50%) rotate(45deg);
+  box-shadow: 0 0 10px rgba(224, 184, 95, 0.6);
+}
+
+/* ——— Type ——————————————————————————————————————————————— */
+
+.hud-label {
+  font-family: var(--font-hud);
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-weight: 600;
+}
+.title-inscription {
+  font-family: var(--font-display);
+  letter-spacing: 0.04em;
+  background: linear-gradient(180deg, #fbefc8 0%, #e0b85f 55%, #9b7328 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.55));
+}
+
+/* ——— Controls —————————————————————————————————————————— */
+
+.btn {
+  font-family: var(--font-hud);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.55rem 1.1rem;
+  font-size: 0.9rem;
+  line-height: 1;
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+  transition: filter 120ms ease, transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
+  cursor: pointer;
+}
+.btn:active {
+  transform: translateY(1px);
+}
+.btn:focus-visible {
+  outline: 2px solid #7df3e1;
+  outline-offset: 2px;
+}
+.btn-gold {
+  color: #1a1206;
+  background: linear-gradient(180deg, #f7e2a6 0%, #e0b85f 45%, #b8862f 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), inset 0 -2px 0 rgba(107, 78, 26, 0.6);
+  text-shadow: 0 1px 0 rgba(255, 240, 200, 0.5);
+}
+.btn-gold:hover {
+  filter: brightness(1.08) saturate(1.1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), inset 0 -2px 0 rgba(107, 78, 26, 0.6), 0 0 22px rgba(224, 184, 95, 0.45);
+}
+.btn-teal {
+  color: #032320;
+  background: linear-gradient(180deg, #9ff7ea 0%, #3fe0c8 45%, #149e8c 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), inset 0 -2px 0 rgba(13, 93, 85, 0.7);
+}
+.btn-teal:hover {
+  filter: brightness(1.06);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), inset 0 -2px 0 rgba(13, 93, 85, 0.7), 0 0 22px rgba(63, 224, 200, 0.45);
+}
+.btn-ghost {
+  color: #eed08a;
+  background: linear-gradient(180deg, rgba(38, 54, 86, 0.75), rgba(14, 22, 41, 0.85));
+  box-shadow: inset 0 0 0 1px rgba(199, 154, 62, 0.45);
+}
+.btn-ghost:hover {
+  color: #f7e6b5;
+  box-shadow: inset 0 0 0 1px rgba(238, 208, 138, 0.8), 0 0 16px rgba(224, 184, 95, 0.2);
+}
+.btn-ghost[aria-pressed="true"] {
+  color: #032320;
+  background: linear-gradient(180deg, #9ff7ea, #3fe0c8);
+  box-shadow: 0 0 18px rgba(63, 224, 200, 0.4);
+}
+.btn-sm {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.78rem;
+}
+
+/* A keyboard key hint. */
+.keycap {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 700;
+  min-width: 1.35rem;
+  height: 1.35rem;
+  padding: 0 0.3rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #e8edf6;
+  background: linear-gradient(180deg, #2c3c5f, #172238);
+  border: 1px solid rgba(154, 171, 201, 0.35);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+}
+.btn-gold .keycap,
+.btn-teal .keycap,
+.btn-ghost[aria-pressed="true"] .keycap {
+  color: #1a1206;
+  background: rgba(255, 255, 255, 0.4);
+  border-color: rgba(0, 0, 0, 0.25);
+}
+
+/* Inline code in lesson text. */
+.code-chip {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  padding: 0.05em 0.35em;
+  border-radius: 3px;
+  color: #7df3e1;
+  background: rgba(63, 224, 200, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(63, 224, 200, 0.18);
+}
+.parchment .code-chip {
+  color: #6b2f0a;
+  background: rgba(107, 78, 26, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(107, 78, 26, 0.25);
+}
+
+/* ——— Motion ———————————————————————————————————————————— */
+
+@keyframes pulse-ring {
+  0% { transform: scale(0.85); opacity: 0.9; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+.pulse-ring {
+  animation: pulse-ring 1.8s ease-out infinite;
+  transform-origin: center;
+  transform-box: fill-box;
+}
+@keyframes float-y {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+.float-y {
+  animation: float-y 3.2s ease-in-out infinite;
+}
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.rise-in {
+  animation: rise-in 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes seal-in {
+  0% { transform: scale(2.2) rotate(-25deg); opacity: 0; }
+  60% { transform: scale(0.92) rotate(4deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0); }
+}
+.seal-in {
+  animation: seal-in 520ms cubic-bezier(0.2, 0.8, 0.2, 1) 180ms both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse-ring,
+  .float-y,
+  .rise-in,
+  .seal-in {
+    animation: none;
+  }
+}
+
+/* ——— Editor ——————————————————————————————————————————— */
+
+.cm-editor .cm-lintRange-error {
+  background-image: none;
+  text-decoration: underline wavy #ff6b6b;
+  text-underline-offset: 3px;
+}
