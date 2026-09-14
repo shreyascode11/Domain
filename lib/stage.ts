@@ -14,14 +14,6 @@ export function setStage(d: Document, map: Map<string, Element>) {
   elements = map;
 }
 
-export function stageDocument() {
-  return doc;
-}
-
-export function elementByKey(key: string) {
-  return elements.get(key) ?? null;
-}
-
 /**
  * A real click on the real element — `addEventListener("click", …)` hears
  * it. A genuine mouse click also focuses whatever's focusable before the

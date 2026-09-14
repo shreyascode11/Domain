@@ -7119,7 +7119,3 @@ export function chapterOf(level: Level) {
 export function levelsIn(chapter: number) {
   return LEVELS.filter((l) => l.chapter === chapter);
 }
-
-export function levelIndexById(id: string) {
-  return LEVELS.findIndex((l) => l.id === id);
-}

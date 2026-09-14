@@ -114,9 +114,3 @@ export const IconTerminal = (p: P) => (
     <path d="m5 7 5 5-5 5M12 17h7" />
   </Svg>
 );
-export const IconEye = (p: P) => (
-  <Svg {...p}>
-    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
-    <circle cx="12" cy="12" r="3" />
-  </Svg>
-);
