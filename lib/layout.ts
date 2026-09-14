@@ -94,7 +94,7 @@ function matchingRules(el: Element, rules: CssRule[]) {
  * virtual approximation, so CSS edge cases are inherited rather than
  * re-implemented and inevitably gotten wrong.
  */
-export function measureDocument(doc: Document, rules: CssRule[]): Box[] {
+export function measureDocument(doc: Document, rules: CssRule[], elements?: Map<string, Element>): Box[] {
   const boxes: Box[] = [];
   const body = doc.body;
   const view = doc.defaultView;
@@ -153,8 +153,10 @@ export function measureDocument(doc: Document, rules: CssRule[]): Box[] {
           : null,
       };
 
+      const key = child.id ? `#${child.id}` : `p${childPath}`;
+      elements?.set(key, child);
       boxes.push({
-        key: child.id ? `#${child.id}` : `p${childPath}`,
+        key,
         tag: child.tagName.toLowerCase(),
         id: child.id,
         className: typeof child.className === "string" ? child.className : "",

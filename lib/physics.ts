@@ -20,12 +20,24 @@ export const BODY = {
   height: 1.15,
 };
 
+/**
+ * What a jump can actually do, measured by simulating this controller
+ * (running start, best take-off point). Lessons quote these numbers, and
+ * every level is designed so a broken layout is well beyond them and a
+ * fixed one is well inside them — so your CSS decides, not your timing.
+ * Re-measure if MOVE changes.
+ */
+export const REACH = {
+  acrossPx: 200, // widest flat gap you can clear (measured: 205)
+  upPx: 100, // tallest step you can climb (measured: 105)
+};
+
 export const MOVE = {
-  speed: 4.4,
+  speed: 3.6,
   groundAccel: 46,
   airAccel: 22,
   gravity: 21,
-  jumpSpeed: 8.8, // apex ≈ 1.84u ≈ 110px
+  jumpSpeed: 8.8,
   jumpCutSpeed: 4.2, // releasing jump early caps upward speed → a smaller hop
   maxFall: 18,
   coyoteTime: 0.1, // you can still jump just after walking off an edge

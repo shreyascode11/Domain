@@ -14,218 +14,439 @@ export type MascotMotion = {
   sinceLand: number;
 };
 
-const AMBER = "#f59e0b";
-const AMBER_DARK = "#b45309";
-const AMBER_LIGHT = "#fbbf57";
+// Rich 3D chitin color palette
+const CHITIN_BASE = "#e07a1e";
+const CHITIN_DARK = "#8c3b0d";
+const CHITIN_HIGHLIGHT = "#fca34d";
+const CHITIN_BELLY = "#fdbb74";
 const TEAL = "#2dd4bf";
-const GOLD = "#e6c36a";
-const INK = "#101826";
+const GOLD = "#f59e0b";
+const INK = "#0f172a";
+const SCARF = "#f43f5e";
 
-const LEG_X = [-0.1, -0.1, 0.02, 0.02, 0.14, 0.14];
-/** Tripod gait: legs 0, 3, 4 swing opposite to 1, 2, 5. */
-const LEG_PHASE = [0, Math.PI, Math.PI, 0, 0, Math.PI];
+// 3 pairs of legs on X axis: front, middle, rear
+const LEG_CONFIG = [
+  { x: 0.12, angleY: 0.28, phase: 0 },
+  { x: 0.12, angleY: -0.28, phase: Math.PI },
+  { x: 0.0, angleY: 0.0, phase: Math.PI },
+  { x: 0.0, angleY: 0.0, phase: 0 },
+  { x: -0.12, angleY: -0.32, phase: 0 },
+  { x: -0.12, angleY: 0.32, phase: Math.PI },
+];
 
-/** One leg: a hip joint that swings, with an upper and lower segment. */
-function Leg({ legRef, x, side }: { legRef: (el: THREE.Group | null) => void; x: number; side: 1 | -1 }) {
+/** 3D Articulated Ant Leg with outward splay and joint */
+function Leg3D({
+  legRef,
+  x,
+  side,
+  angleY,
+}: {
+  legRef: (el: THREE.Group | null) => void;
+  x: number;
+  side: 1 | -1;
+  angleY: number;
+}) {
   return (
-    <group ref={legRef} position={[x, 0.36, 0.1 * side]}>
-      <mesh position={[0, -0.09, 0.05 * side]} rotation={[0.55 * side, 0, 0]} castShadow>
-        <capsuleGeometry args={[0.028, 0.16, 4, 8]} />
-        <meshStandardMaterial color={AMBER_DARK} roughness={0.5} />
+    <group ref={legRef} position={[x, 0.42, 0.12 * side]} rotation={[0, angleY, 0]}>
+      {/* Hip coxa */}
+      <mesh rotation={[0.4 * side, 0, 0]} position={[0, -0.02, 0.05 * side]}>
+        <sphereGeometry args={[0.042, 10, 8]} />
+        <meshStandardMaterial color={CHITIN_DARK} roughness={0.4} />
       </mesh>
-      <mesh position={[0, -0.25, 0.11 * side]} rotation={[-0.15 * side, 0, 0]} castShadow>
-        <capsuleGeometry args={[0.024, 0.16, 4, 8]} />
-        <meshStandardMaterial color={INK} roughness={0.6} />
+      {/* Upper leg (Femur) arches outward */}
+      <mesh
+        position={[0, 0.04, 0.12 * side]}
+        rotation={[0.75 * side, 0, 0.15 * side]}
+        castShadow
+      >
+        <capsuleGeometry args={[0.026, 0.18, 4, 8]} />
+        <meshStandardMaterial color={CHITIN_BASE} roughness={0.35} metalness={0.15} />
+      </mesh>
+      {/* Knee joint */}
+      <mesh position={[0, 0.09, 0.21 * side]}>
+        <sphereGeometry args={[0.032, 8, 8]} />
+        <meshStandardMaterial color={GOLD} roughness={0.3} metalness={0.4} />
+      </mesh>
+      {/* Lower leg (Tibia) bends back down towards ground */}
+      <mesh
+        position={[0, -0.18, 0.23 * side]}
+        rotation={[-0.4 * side, 0, -0.1 * side]}
+        castShadow
+      >
+        <capsuleGeometry args={[0.02, 0.36, 4, 8]} />
+        <meshStandardMaterial color={INK} roughness={0.5} />
+      </mesh>
+      {/* Foot claw */}
+      <mesh position={[0.01, -0.37, 0.25 * side]} rotation={[0, 0, 0.3]}>
+        <coneGeometry args={[0.02, 0.06, 5]} />
+        <meshStandardMaterial color={CHITIN_DARK} roughness={0.6} />
       </mesh>
     </group>
   );
 }
 
 /**
- * Dom — the player. A small explorer ant, after the chapter's fable. Built
- * from primitives, animated from the controller's motion: a tripod walk
- * cycle, squash on landing, stretch on take-off, a quick flip when turning,
- * idle bob, antenna sway and blinking.
- *
- * Modelled facing +x; facing left mirrors on x so the eyes stay on the
- * camera's side.
+ * Dom — the player character.
+ * Redesigned as a fully volumetric, true 3D ant adventurer:
+ * - True 3D Y-axis rotation (turns in 3D space, no 2D flat paper squish)
+ * - Eyes on both sides of head with pupils and specular glints
+ * - 6 articulated 3D legs splaying outwards into space
+ * - Segmented chitin abdomen with gloss highlights
+ * - Explorer backpack, scarf, and glowing crystalline antennae
  */
-export const Mascot = forwardRef<THREE.Group, { motion: RefObject<MascotMotion> }>(function Mascot({ motion }, ref) {
-  const flip = useRef<THREE.Group>(null);
-  const squash = useRef<THREE.Group>(null);
-  const bodyBob = useRef<THREE.Group>(null);
-  const head = useRef<THREE.Group>(null);
-  const antennaL = useRef<THREE.Group>(null);
-  const antennaR = useRef<THREE.Group>(null);
-  const eyes = useRef<THREE.Group>(null);
-  const legs = useRef<(THREE.Group | null)[]>([]);
-  const anim = useRef({ walk: 0, flipX: 1, t: 0, blinkAt: 2.5 });
-  const tipMaterial = useMemo(
-    () => new THREE.MeshStandardMaterial({ color: TEAL, emissive: TEAL, emissiveIntensity: 2.2, toneMapped: false }),
-    []
-  );
+export const Mascot = forwardRef<THREE.Group, { motion: RefObject<MascotMotion> }>(
+  function Mascot({ motion }, ref) {
+    const rotGroup = useRef<THREE.Group>(null);
+    const squash = useRef<THREE.Group>(null);
+    const bodyBob = useRef<THREE.Group>(null);
+    const head = useRef<THREE.Group>(null);
+    const abdomen = useRef<THREE.Group>(null);
+    const antennaL = useRef<THREE.Group>(null);
+    const antennaR = useRef<THREE.Group>(null);
+    const eyeL = useRef<THREE.Group>(null);
+    const eyeR = useRef<THREE.Group>(null);
+    const legs = useRef<(THREE.Group | null)[]>([]);
+    const anim = useRef({ walk: 0, currentY: 0, t: 0, blinkAt: 2.5 });
 
-  useFrame((_, rawDelta) => {
-    const m = motion.current;
-    if (!m) return;
-    const dt = Math.min(rawDelta, 1 / 20);
-    const a = anim.current;
-    a.t += dt;
+    const tipMaterial = useMemo(
+      () =>
+        new THREE.MeshStandardMaterial({
+          color: TEAL,
+          emissive: TEAL,
+          emissiveIntensity: 2.5,
+          toneMapped: false,
+          roughness: 0.1,
+        }),
+      []
+    );
 
-    const speed = Math.abs(m.vx);
-    const walking = m.grounded && speed > 0.3;
-    a.walk += dt * (walking ? 5 + speed * 2.2 : 0);
+    const eyeMaterial = useMemo(
+      () =>
+        new THREE.MeshStandardMaterial({
+          color: "#ffffff",
+          roughness: 0.15,
+          metalness: 0.1,
+        }),
+      []
+    );
 
-    // Turn: flip through zero on x for a snappy, readable direction change.
-    a.flipX += (m.facing - a.flipX) * Math.min(1, dt * 16);
-    if (flip.current) flip.current.scale.x = Math.abs(a.flipX) < 0.08 ? 0.08 * Math.sign(a.flipX || 1) : a.flipX;
+    const pupilMaterial = useMemo(
+      () =>
+        new THREE.MeshStandardMaterial({
+          color: "#050811",
+          roughness: 0.05,
+        }),
+      []
+    );
 
-    // Squash & stretch.
-    let sy = 1;
-    if (!m.grounded) sy = THREE.MathUtils.clamp(1 + m.vy * 0.025, 0.9, 1.14);
-    if (m.sinceLand < 0.18) sy = 1 - 0.22 * Math.sin((m.sinceLand / 0.18) * Math.PI);
-    if (m.sinceJump < 0.12) sy = 1 + 0.16 * Math.sin((m.sinceJump / 0.12) * Math.PI);
-    if (squash.current) {
-      squash.current.scale.y += (sy - squash.current.scale.y) * Math.min(1, dt * 30);
-      squash.current.scale.x = squash.current.scale.z = 1 / Math.sqrt(squash.current.scale.y);
-    }
+    useFrame((_, rawDelta) => {
+      const m = motion.current;
+      if (!m) return;
+      const dt = Math.min(rawDelta, 1 / 20);
+      const a = anim.current;
+      a.t += dt;
 
-    // Body bob and lean.
-    if (bodyBob.current) {
-      const bob = walking ? Math.abs(Math.sin(a.walk * 2)) * 0.035 : Math.sin(a.t * 2.2) * 0.012;
-      bodyBob.current.position.y = bob;
-      const lean = walking ? -0.08 : m.grounded ? 0 : THREE.MathUtils.clamp(-m.vy * 0.02, -0.2, 0.2);
-      bodyBob.current.rotation.z += (lean - bodyBob.current.rotation.z) * Math.min(1, dt * 10);
-    }
+      const speed = Math.abs(m.vx);
+      const walking = m.grounded && speed > 0.25;
+      a.walk += dt * (walking ? 7 + speed * 2.8 : 0);
 
-    legs.current.forEach((leg, i) => {
-      if (!leg) return;
-      const phase = LEG_PHASE[i];
-      const target = walking ? Math.sin(a.walk * 2 + phase) * 0.55 : m.grounded ? 0 : 0.35;
-      leg.rotation.z += (target - leg.rotation.z) * Math.min(1, dt * 18);
+      // True 3D Y-axis rotation: facing right = 0, facing left = Math.PI
+      const targetY = m.facing === 1 ? 0 : Math.PI;
+      // Handle wrap-around smoothly
+      let diff = targetY - a.currentY;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      a.currentY += diff * Math.min(1, dt * 14);
+
+      if (rotGroup.current) {
+        rotGroup.current.rotation.y = a.currentY;
+        // Dynamic bank lean into turns
+        const turnLean = -diff * 0.35;
+        rotGroup.current.rotation.z = THREE.MathUtils.lerp(
+          rotGroup.current.rotation.z,
+          turnLean,
+          dt * 12
+        );
+      }
+
+      // Procedural 3D Squash & Stretch
+      let sy = 1;
+      if (!m.grounded) {
+        sy = THREE.MathUtils.clamp(1 + m.vy * 0.035, 0.88, 1.22);
+      }
+      if (m.sinceLand < 0.2) {
+        sy = 1 - 0.25 * Math.sin((m.sinceLand / 0.2) * Math.PI);
+      }
+      if (m.sinceJump < 0.14) {
+        sy = 1 + 0.22 * Math.sin((m.sinceJump / 0.14) * Math.PI);
+      }
+      if (squash.current) {
+        squash.current.scale.y = THREE.MathUtils.lerp(squash.current.scale.y, sy, dt * 25);
+        const sXZ = 1 / Math.sqrt(squash.current.scale.y);
+        squash.current.scale.x = sXZ;
+        squash.current.scale.z = sXZ;
+      }
+
+      // Body bob and forward sprint tilt
+      if (bodyBob.current) {
+        const bob = walking
+          ? Math.abs(Math.sin(a.walk * 2)) * 0.045
+          : Math.sin(a.t * 2.4) * 0.015;
+        bodyBob.current.position.y = bob;
+        const forwardLean = walking ? 0.12 : m.grounded ? 0 : -m.vy * 0.03;
+        bodyBob.current.rotation.z = THREE.MathUtils.lerp(
+          bodyBob.current.rotation.z,
+          forwardLean,
+          dt * 10
+        );
+      }
+
+      // Abdomen secondary sway
+      if (abdomen.current) {
+        abdomen.current.rotation.z =
+          Math.sin(a.t * 3) * 0.06 + (walking ? Math.cos(a.walk * 2) * 0.1 : 0);
+        abdomen.current.rotation.y = walking ? Math.sin(a.walk) * 0.08 : 0;
+      }
+
+      // 6-Leg Tripod Gait in 3D
+      legs.current.forEach((leg, i) => {
+        if (!leg) return;
+        const cfg = LEG_CONFIG[i];
+        if (walking) {
+          const stride = Math.sin(a.walk * 2 + cfg.phase);
+          const lift = Math.max(0, Math.cos(a.walk * 2 + cfg.phase)) * 0.25;
+          leg.rotation.z = stride * 0.48;
+          leg.position.y = 0.42 + lift * 0.08;
+        } else if (!m.grounded) {
+          // Legs tuck when airborne
+          leg.rotation.z = THREE.MathUtils.lerp(leg.rotation.z, 0.35, dt * 10);
+        } else {
+          // Idle breathing on legs
+          leg.rotation.z = THREE.MathUtils.lerp(
+            leg.rotation.z,
+            Math.sin(a.t * 2 + cfg.phase) * 0.03,
+            dt * 10
+          );
+          leg.position.y = 0.42;
+        }
+      });
+
+      // Head look & antenna physics
+      if (head.current) {
+        head.current.rotation.z =
+          Math.sin(a.t * 1.8) * 0.04 + (walking ? 0.05 : 0);
+      }
+      const sway =
+        Math.sin(a.t * 3.5) * 0.14 + (walking ? Math.sin(a.walk * 2) * 0.12 : 0) - m.vy * 0.02;
+      if (antennaL.current) antennaL.current.rotation.z = 0.38 + sway;
+      if (antennaR.current) antennaR.current.rotation.z = 0.28 + sway * 0.85;
+
+      // Blinking on both eyes
+      if (eyeL.current && eyeR.current) {
+        if (a.t > a.blinkAt) {
+          const k = (a.t - a.blinkAt) / 0.14;
+          const blinkScale = k < 1 ? Math.max(0.1, Math.abs(1 - 2 * k)) : 1;
+          eyeL.current.scale.y = blinkScale;
+          eyeR.current.scale.y = blinkScale;
+          if (k >= 1) a.blinkAt = a.t + 2.5 + Math.random() * 3.5;
+        }
+      }
     });
 
-    // Head and antennae.
-    if (head.current) head.current.rotation.z = Math.sin(a.t * 1.6) * 0.05 + (m.grounded ? 0 : 0.1);
-    const sway = Math.sin(a.t * 3.1) * 0.12 + (walking ? Math.sin(a.walk * 2) * 0.1 : 0) - m.vy * 0.015;
-    if (antennaL.current) antennaL.current.rotation.z = 0.35 + sway;
-    if (antennaR.current) antennaR.current.rotation.z = 0.25 + sway * 0.8;
+    return (
+      <group ref={ref}>
+        {/* Dynamic 3D ground contact shadow */}
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.015, 0]}>
+          <circleGeometry args={[0.42, 28]} />
+          <meshBasicMaterial color="#000000" transparent opacity={0.38} depthWrite={false} />
+        </mesh>
 
-    // Blink.
-    if (eyes.current) {
-      if (a.t > a.blinkAt) {
-        const k = (a.t - a.blinkAt) / 0.14;
-        eyes.current.scale.y = k < 1 ? Math.max(0.1, Math.abs(1 - 2 * k)) : 1;
-        if (k >= 1) a.blinkAt = a.t + 2 + Math.random() * 3;
-      }
-    }
-  });
+        {/* 3D Rotation Group (rotates smoothly around Y) */}
+        <group ref={rotGroup}>
+          <group ref={squash}>
+            {/* 6 Articulated 3D Legs */}
+            {LEG_CONFIG.map((cfg, i) => (
+              <Leg3D
+                key={i}
+                legRef={(el) => {
+                  legs.current[i] = el;
+                }}
+                x={cfg.x}
+                side={i % 2 === 0 ? 1 : -1}
+                angleY={cfg.angleY}
+              />
+            ))}
 
-  return (
-    <group ref={ref}>
-      {/* soft contact shadow */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.01, 0]}>
-        <circleGeometry args={[0.36, 24]} />
-        <meshBasicMaterial color="#000000" transparent opacity={0.28} depthWrite={false} />
-      </mesh>
-
-      <group ref={flip}>
-        <group ref={squash}>
-          {LEG_X.map((x, i) => (
-            <Leg
-              key={i}
-              legRef={(el) => {
-                legs.current[i] = el;
-              }}
-              x={x}
-              side={i % 2 === 0 ? 1 : -1}
-            />
-          ))}
-
-          <group ref={bodyBob}>
-            {/* abdomen */}
-            <mesh position={[-0.2, 0.52, 0]} scale={[0.3, 0.24, 0.24]} castShadow>
-              <sphereGeometry args={[1, 24, 16]} />
-              <meshStandardMaterial color={AMBER} roughness={0.35} metalness={0.05} />
-            </mesh>
-            {/* abdomen stripes */}
-            <mesh position={[-0.24, 0.53, 0]} scale={[0.04, 0.235, 0.235]}>
-              <sphereGeometry args={[1, 16, 12]} />
-              <meshStandardMaterial color={AMBER_DARK} roughness={0.4} />
-            </mesh>
-            {/* explorer's satchel */}
-            <mesh position={[-0.17, 0.74, 0]} rotation={[0, 0, 0.25]} castShadow>
-              <boxGeometry args={[0.2, 0.12, 0.26]} />
-              <meshStandardMaterial color={TEAL} roughness={0.45} />
-            </mesh>
-            <mesh position={[-0.17, 0.74, 0]} rotation={[0, 0, 0.25]}>
-              <boxGeometry args={[0.035, 0.125, 0.27]} />
-              <meshStandardMaterial color={GOLD} metalness={0.6} roughness={0.3} />
-            </mesh>
-            {/* thorax */}
-            <mesh position={[0.03, 0.55, 0]} scale={[0.15, 0.14, 0.14]} castShadow>
-              <sphereGeometry args={[1, 20, 14]} />
-              <meshStandardMaterial color={AMBER_DARK} roughness={0.4} />
-            </mesh>
-            {/* scarf */}
-            <mesh position={[0.1, 0.63, 0]} rotation={[0, 0, -0.3]}>
-              <torusGeometry args={[0.1, 0.035, 8, 20]} />
-              <meshStandardMaterial color="#ef4444" roughness={0.6} />
-            </mesh>
-
-            {/* head */}
-            <group ref={head} position={[0.2, 0.8, 0]}>
-              <mesh scale={[0.24, 0.22, 0.23]} castShadow>
-                <sphereGeometry args={[1, 28, 20]} />
-                <meshStandardMaterial color={AMBER_LIGHT} roughness={0.35} />
+            <group ref={bodyBob}>
+              {/* Thorax (Middle Body) */}
+              <mesh position={[0.02, 0.54, 0]} scale={[0.16, 0.15, 0.15]} castShadow>
+                <sphereGeometry args={[1, 24, 18]} />
+                <meshStandardMaterial
+                  color={CHITIN_DARK}
+                  roughness={0.35}
+                  metalness={0.2}
+                />
               </mesh>
-              {/* cheeks */}
-              <mesh position={[0.1, -0.07, 0.17]} scale={[0.05, 0.03, 0.02]}>
-                <sphereGeometry args={[1, 12, 8]} />
-                <meshStandardMaterial color="#fb7185" roughness={0.8} />
+
+              {/* Explorer Scarf */}
+              <mesh position={[0.11, 0.63, 0]} rotation={[0, 0, -0.35]}>
+                <torusGeometry args={[0.11, 0.04, 10, 24]} />
+                <meshStandardMaterial color={SCARF} roughness={0.65} />
               </mesh>
-              {/* eyes — on the camera side */}
-              <group ref={eyes} position={[0.06, 0.03, 0.18]}>
-                {[0, 0.13].map((dx, i) => (
-                  <group key={i} position={[dx, i === 0 ? 0 : 0.01, i === 0 ? 0.02 : -0.02]}>
-                    <mesh scale={[0.07, 0.085, 0.05]}>
-                      <sphereGeometry args={[1, 16, 12]} />
-                      <meshStandardMaterial color="#ffffff" roughness={0.2} />
+              {/* Scarf knot & fluttering tails */}
+              <mesh position={[0.08, 0.58, 0.12]} rotation={[0.4, 0.2, -0.2]}>
+                <boxGeometry args={[0.05, 0.12, 0.03]} />
+                <meshStandardMaterial color={SCARF} roughness={0.65} />
+              </mesh>
+
+              {/* Segmented Abdomen (Gaster) */}
+              <group ref={abdomen} position={[-0.22, 0.52, 0]}>
+                {/* Abdomen main sphere */}
+                <mesh scale={[0.34, 0.26, 0.26]} castShadow>
+                  <sphereGeometry args={[1, 28, 20]} />
+                  <meshStandardMaterial
+                    color={CHITIN_BASE}
+                    roughness={0.32}
+                    metalness={0.18}
+                  />
+                </mesh>
+                {/* Segment stripe 1 */}
+                <mesh position={[-0.08, 0.01, 0]} scale={[0.05, 0.258, 0.258]}>
+                  <sphereGeometry args={[1, 20, 16]} />
+                  <meshStandardMaterial color={CHITIN_DARK} roughness={0.4} />
+                </mesh>
+                {/* Segment stripe 2 */}
+                <mesh position={[0.06, 0.01, 0]} scale={[0.045, 0.255, 0.255]}>
+                  <sphereGeometry args={[1, 20, 16]} />
+                  <meshStandardMaterial color={CHITIN_DARK} roughness={0.4} />
+                </mesh>
+                {/* Belly highlight plate */}
+                <mesh position={[0, -0.04, 0]} scale={[0.26, 0.2, 0.2]}>
+                  <sphereGeometry args={[1, 16, 12]} />
+                  <meshStandardMaterial color={CHITIN_BELLY} roughness={0.5} />
+                </mesh>
+
+                {/* 3D Explorer's Backpack */}
+                <mesh position={[0.02, 0.26, 0]} rotation={[0, 0, 0.2]} castShadow>
+                  <boxGeometry args={[0.22, 0.14, 0.26]} />
+                  <meshStandardMaterial color={TEAL} roughness={0.45} />
+                </mesh>
+                {/* Backpack Gold Buckle */}
+                <mesh position={[0.02, 0.26, 0]} rotation={[0, 0, 0.2]}>
+                  <boxGeometry args={[0.04, 0.145, 0.27]} />
+                  <meshStandardMaterial color={GOLD} metalness={0.7} roughness={0.25} />
+                </mesh>
+                {/* Rolled Bedroll / Map scroll strapped on top of pack */}
+                <mesh
+                  position={[0.02, 0.36, 0]}
+                  rotation={[Math.PI / 2, 0, 0]}
+                  castShadow
+                >
+                  <cylinderGeometry args={[0.055, 0.055, 0.28, 14]} />
+                  <meshStandardMaterial color="#fef08a" roughness={0.7} />
+                </mesh>
+              </group>
+
+              {/* Head */}
+              <group ref={head} position={[0.22, 0.8, 0]}>
+                {/* Main head volume */}
+                <mesh scale={[0.25, 0.23, 0.24]} castShadow>
+                  <sphereGeometry args={[1, 30, 24]} />
+                  <meshStandardMaterial
+                    color={CHITIN_HIGHLIGHT}
+                    roughness={0.3}
+                    metalness={0.15}
+                  />
+                </mesh>
+
+                {/* Explorer Goggles / Brow Band */}
+                <mesh position={[0.06, 0.08, 0]} rotation={[0, 0, -0.1]}>
+                  <torusGeometry args={[0.23, 0.024, 8, 28]} />
+                  <meshStandardMaterial color={INK} roughness={0.5} />
+                </mesh>
+                {/* Goggle brass rims */}
+                <mesh position={[0.13, 0.08, 0.11]} rotation={[0, 0.3, 0]}>
+                  <torusGeometry args={[0.065, 0.016, 8, 20]} />
+                  <meshStandardMaterial color={GOLD} metalness={0.8} roughness={0.2} />
+                </mesh>
+                <mesh position={[0.13, 0.08, -0.11]} rotation={[0, -0.3, 0]}>
+                  <torusGeometry args={[0.065, 0.016, 8, 20]} />
+                  <meshStandardMaterial color={GOLD} metalness={0.8} roughness={0.2} />
+                </mesh>
+
+                {/* 3D Mandibles (Jaws) */}
+                <mesh position={[0.24, -0.14, 0.06]} rotation={[0, 0.3, -0.4]}>
+                  <coneGeometry args={[0.035, 0.12, 6]} />
+                  <meshStandardMaterial color={CHITIN_DARK} roughness={0.4} />
+                </mesh>
+                <mesh position={[0.24, -0.14, -0.06]} rotation={[0, -0.3, -0.4]}>
+                  <coneGeometry args={[0.035, 0.12, 6]} />
+                  <meshStandardMaterial color={CHITIN_DARK} roughness={0.4} />
+                </mesh>
+
+                {/* Left Eye (+Z side) */}
+                <group ref={eyeL} position={[0.11, 0.04, 0.15]} rotation={[0, 0.35, 0]}>
+                  <mesh scale={[0.075, 0.09, 0.06]}>
+                    <sphereGeometry args={[1, 18, 14]} />
+                    <primitive object={eyeMaterial} attach="material" />
+                  </mesh>
+                  <mesh position={[0.035, -0.005, 0.03]} scale={[0.045, 0.055, 0.03]}>
+                    <sphereGeometry args={[1, 14, 12]} />
+                    <primitive object={pupilMaterial} attach="material" />
+                  </mesh>
+                  <mesh position={[0.045, 0.025, 0.05]} scale={0.015}>
+                    <sphereGeometry args={[1, 8, 8]} />
+                    <meshBasicMaterial color="#ffffff" />
+                  </mesh>
+                </group>
+
+                {/* Right Eye (-Z side) */}
+                <group ref={eyeR} position={[0.11, 0.04, -0.15]} rotation={[0, -0.35, 0]}>
+                  <mesh scale={[0.075, 0.09, 0.06]}>
+                    <sphereGeometry args={[1, 18, 14]} />
+                    <primitive object={eyeMaterial} attach="material" />
+                  </mesh>
+                  <mesh position={[0.035, -0.005, -0.03]} scale={[0.045, 0.055, 0.03]}>
+                    <sphereGeometry args={[1, 14, 12]} />
+                    <primitive object={pupilMaterial} attach="material" />
+                  </mesh>
+                  <mesh position={[0.045, 0.025, -0.05]} scale={0.015}>
+                    <sphereGeometry args={[1, 8, 8]} />
+                    <meshBasicMaterial color="#ffffff" />
+                  </mesh>
+                </group>
+
+                {/* Antennae with Glowing Teal Energy Tips */}
+                {[
+                  { r: antennaL, z: 0.09, x: 0.04 },
+                  { r: antennaR, z: -0.09, x: 0.04 },
+                ].map(({ r, z, x }, i) => (
+                  <group key={i} ref={r} position={[x, 0.2, z]}>
+                    <mesh position={[0, 0.14, 0]}>
+                      <cylinderGeometry args={[0.014, 0.02, 0.28, 8]} />
+                      <meshStandardMaterial color={INK} roughness={0.4} />
                     </mesh>
-                    <mesh position={[0.02, -0.005, 0.035]} scale={[0.04, 0.05, 0.03]}>
-                      <sphereGeometry args={[1, 12, 10]} />
-                      <meshStandardMaterial color={INK} roughness={0.1} />
+                    <mesh position={[0.08, 0.29, 0]} rotation={[0, 0, -0.85]}>
+                      <cylinderGeometry args={[0.01, 0.014, 0.16, 8]} />
+                      <meshStandardMaterial color={INK} roughness={0.4} />
                     </mesh>
-                    <mesh position={[0.03, 0.02, 0.06]} scale={0.012}>
-                      <sphereGeometry args={[1, 8, 6]} />
-                      <meshBasicMaterial color="#ffffff" />
+                    {/* Glowing Crystal Orb */}
+                    <mesh position={[0.15, 0.35, 0]} material={tipMaterial}>
+                      <sphereGeometry args={[0.046, 14, 12]} />
                     </mesh>
+                    <pointLight
+                      position={[0.15, 0.35, 0]}
+                      color={TEAL}
+                      intensity={0.4}
+                      distance={0.8}
+                    />
                   </group>
                 ))}
               </group>
-              {/* antennae */}
-              {[
-                { r: antennaL, z: 0.08, x: 0.02 },
-                { r: antennaR, z: -0.08, x: 0.08 },
-              ].map(({ r, z, x }, i) => (
-                <group key={i} ref={r} position={[x, 0.17, z]}>
-                  <mesh position={[0, 0.12, 0]}>
-                    <cylinderGeometry args={[0.013, 0.018, 0.24, 6]} />
-                    <meshStandardMaterial color={INK} />
-                  </mesh>
-                  <mesh position={[0.07, 0.25, 0]} rotation={[0, 0, -0.9]}>
-                    <cylinderGeometry args={[0.01, 0.013, 0.14, 6]} />
-                    <meshStandardMaterial color={INK} />
-                  </mesh>
-                  <mesh position={[0.13, 0.3, 0]} material={tipMaterial}>
-                    <sphereGeometry args={[0.04, 12, 10]} />
-                  </mesh>
-                </group>
-              ))}
             </group>
           </group>
         </group>
       </group>
-    </group>
-  );
-});
+    );
+  }
+);

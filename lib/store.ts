@@ -1,16 +1,23 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import { LEVELS } from "./levels";
+import { LEVELS, type FileKind } from "./levels";
 import type { WorldObject } from "./layout";
-import { diffCss, type CssChange, type CssIssue } from "./cssParse";
+import { diffCss, type CssIssue } from "./cssParse";
+import type { ConsoleLine } from "./jsRun";
+import { countMatches } from "./stage";
 
 export type Phase = "intro" | "playing" | "debrief" | "chapter-complete";
+export type PanelTab = "learn" | FileKind;
+
+export type Change =
+  | { kind: "css"; selector: string; prop: string; before: string | null; after: string | null }
+  | { kind: "line"; file: FileKind; op: "added" | "removed"; text: string };
 
 export type LevelResult = {
   gold: boolean;
   assisted: boolean;
   note?: string;
-  changes: CssChange[];
+  changes: Change[];
 };
 
 export type LevelProgress = { completed: boolean; gold: boolean; assisted: boolean };
@@ -23,8 +30,10 @@ export type LevelProgress = { completed: boolean; gold: boolean; assisted: boole
 type ProgressState = {
   levels: Record<string, LevelProgress>;
   seenChapterIntro: Record<number, boolean>;
+  seenControls: boolean;
   record: (levelId: string, result: LevelProgress) => void;
   markChapterIntroSeen: (chapter: number) => void;
+  markControlsSeen: () => void;
   clear: () => void;
 };
 
@@ -33,6 +42,7 @@ export const useProgressStore = create<ProgressState>()(
     (set) => ({
       levels: {},
       seenChapterIntro: {},
+      seenControls: false,
       record: (levelId, result) =>
         set((s) => {
           const prev = s.levels[levelId];
@@ -48,9 +58,9 @@ export const useProgressStore = create<ProgressState>()(
             },
           };
         }),
-      markChapterIntroSeen: (chapter) =>
-        set((s) => ({ seenChapterIntro: { ...s.seenChapterIntro, [chapter]: true } })),
-      clear: () => set({ levels: {}, seenChapterIntro: {} }),
+      markChapterIntroSeen: (chapter) => set((s) => ({ seenChapterIntro: { ...s.seenChapterIntro, [chapter]: true } })),
+      markControlsSeen: () => set({ seenControls: true }),
+      clear: () => set({ levels: {}, seenChapterIntro: {}, seenControls: false }),
     }),
     {
       name: "domain-progress-v1",
@@ -60,20 +70,54 @@ export const useProgressStore = create<ProgressState>()(
   )
 );
 
-/** Levels unlock in order; a level is playable once the one before it is done. */
+/** Review mode: every level is open. Set back to false to restore in-order unlocking. */
+export const UNLOCK_ALL_LEVELS = true;
+
+/**
+ * Levels unlock in order. A level you've already completed always stays
+ * open, so progress saved before new chapters were added isn't locked away.
+ */
 export function isUnlocked(index: number, progress: Record<string, LevelProgress>) {
-  if (index === 0) return true;
-  return !!progress[LEVELS[index - 1].id]?.completed;
+  if (UNLOCK_ALL_LEVELS || index === 0) return true;
+  return !!progress[LEVELS[index].id]?.completed || !!progress[LEVELS[index - 1].id]?.completed;
 }
 
 export function firstIncompleteIndex(progress: Record<string, LevelProgress>) {
-  const i = LEVELS.findIndex((l) => !progress[l.id]?.completed);
+  const i = LEVELS.findIndex((l, idx) => !progress[l.id]?.completed && isUnlocked(idx, progress));
   return i === -1 ? 0 : i;
+}
+
+/**
+ * A small line diff (longest common subsequence over trimmed, non-blank
+ * lines), so moving a line shows up as removed here and added there.
+ */
+function lineChanges(file: FileKind, before: string, after: string): Change[] {
+  const a = before.split("\n").map((l) => l.trim()).filter(Boolean);
+  const b = after.split("\n").map((l) => l.trim()).filter(Boolean);
+  const lcs: number[][] = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
+  for (let i = a.length - 1; i >= 0; i--)
+    for (let j = b.length - 1; j >= 0; j--) lcs[i][j] = a[i] === b[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+  const out: Change[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < a.length || j < b.length) {
+    if (i < a.length && j < b.length && a[i] === b[j]) {
+      i++;
+      j++;
+    } else if (j < b.length && (i === a.length || lcs[i][j + 1] >= lcs[i + 1][j])) {
+      out.push({ kind: "line", file, op: "added", text: b[j++] });
+    } else {
+      out.push({ kind: "line", file, op: "removed", text: a[i++] });
+    }
+  }
+  return out.slice(0, 14);
 }
 
 /* ------------------------------------------------------------------ */
 /* The live level session.                                             */
 /* ------------------------------------------------------------------ */
+
+type Issues = Record<FileKind, CssIssue[]>;
 
 type LevelState = {
   levelIndex: number;
@@ -82,14 +126,27 @@ type LevelState = {
   /** What's in the editors right now (may be mid-typing / invalid). */
   html: string;
   css: string;
-  /** The last CSS that validated and was actually applied to the world. */
+  js: string;
+  /** The last HTML/CSS that validated and was applied to the page. */
+  appliedHtml: string;
   appliedCss: string;
-  cssIssues: CssIssue[];
+  /** The JavaScript that was last run. */
+  ranJs: string;
+  issues: Issues;
 
-  setHtml: (html: string) => void;
-  setCss: (css: string) => void;
-  setApplied: (css: string) => void;
-  setCssIssues: (issues: CssIssue[]) => void;
+  setFile: (file: FileKind, text: string) => void;
+  setApplied: (html: string, css: string) => void;
+  setIssues: (file: FileKind, issues: CssIssue[]) => void;
+  resetFile: (file: FileKind) => void;
+
+  /** Bumped by the Run button; the stage re-runs JavaScript when it changes. */
+  jsRunToken: number;
+  runJs: () => void;
+  console: ConsoleLine[];
+  logConsole: (line: ConsoleLine) => void;
+  clearConsole: () => void;
+  jsStatus: { state: "idle" | "ran" | "error"; message?: string; hint?: string; line?: number };
+  setJsStatus: (s: LevelState["jsStatus"]) => void;
 
   /** Bumped on every level load/reset, so stale measurements are ignored. */
   levelLoadToken: number;
@@ -103,7 +160,6 @@ type LevelState = {
   resetLevel: () => void;
   completeLevel: () => void;
   nextLevel: () => void;
-  openChapterComplete: () => void;
 
   result: LevelResult | null;
 
@@ -122,12 +178,24 @@ type LevelState = {
 
   selectedKey: string | null;
   select: (key: string | null) => void;
+  hoveredKey: string | null;
+  hover: (key: string | null) => void;
 
-  /** Ask the editor to switch to the CSS tab and put the cursor on a line. */
-  cssJump: { line: number; nonce: number } | null;
-  jumpToCss: (line: number) => void;
-  sidePanelTab: "lesson" | "css" | "html";
-  setSidePanelTab: (tab: "lesson" | "css" | "html") => void;
+  /** "3d": three-quarter follow camera. "side": flat side-on view. */
+  view: "3d" | "side";
+  toggleView: () => void;
+
+  /** First-time control coaching. */
+  moved: boolean;
+  jumped: boolean;
+  noteMoved: () => void;
+  noteJumped: () => void;
+
+  /** Ask an editor to open and put the cursor on a line. */
+  jump: { file: FileKind; line: number; nonce: number } | null;
+  jumpTo: (file: FileKind, line: number) => void;
+  sidePanelTab: PanelTab;
+  setSidePanelTab: (tab: PanelTab) => void;
 };
 
 function sameWorld(a: WorldObject[], b: WorldObject[]) {
@@ -135,8 +203,7 @@ function sameWorld(a: WorldObject[], b: WorldObject[]) {
   for (let i = 0; i < a.length; i++) {
     const x = a[i];
     const y = b[i];
-    if (x.key !== y.key || x.visible !== y.visible || x.color !== y.color || x.borderColor !== y.borderColor)
-      return false;
+    if (x.key !== y.key || x.visible !== y.visible || x.color !== y.color || x.borderColor !== y.borderColor) return false;
     for (let k = 0; k < 3; k++) {
       if (Math.abs(x.position[k] - y.position[k]) > 1e-4) return false;
       if (Math.abs(x.size[k] - y.size[k]) > 1e-4) return false;
@@ -145,6 +212,7 @@ function sameWorld(a: WorldObject[], b: WorldObject[]) {
   return true;
 }
 
+const noIssues = (): Issues => ({ html: [], css: [], js: [] });
 const first = LEVELS[0];
 
 export const useLevelStore = create<LevelState>((set, get) => ({
@@ -153,13 +221,29 @@ export const useLevelStore = create<LevelState>((set, get) => ({
 
   html: first.html,
   css: first.css,
+  js: first.js ?? "",
+  appliedHtml: first.html,
   appliedCss: first.css,
-  cssIssues: [],
+  ranJs: first.js ?? "",
+  issues: noIssues(),
 
-  setHtml: (html) => set({ html }),
-  setCss: (css) => set({ css }),
-  setApplied: (appliedCss) => set({ appliedCss }),
-  setCssIssues: (cssIssues) => set({ cssIssues }),
+  setFile: (file, text) => set({ [file]: text } as Pick<LevelState, typeof file>),
+  setApplied: (appliedHtml, appliedCss) => set({ appliedHtml, appliedCss }),
+  setIssues: (file, list) => set((s) => ({ issues: { ...s.issues, [file]: list } })),
+  resetFile: (file) => {
+    const level = LEVELS[get().levelIndex];
+    const original = file === "js" ? level.js ?? "" : level[file];
+    set({ [file]: original } as Pick<LevelState, typeof file>);
+    if (file === "js") get().runJs();
+  },
+
+  jsRunToken: 0,
+  runJs: () => set((s) => ({ jsRunToken: s.jsRunToken + 1, ranJs: s.js })),
+  console: [],
+  logConsole: (line) => set((s) => ({ console: [...s.console, line].slice(-60) })),
+  clearConsole: () => set({ console: [] }),
+  jsStatus: { state: "idle" },
+  setJsStatus: (jsStatus) => set({ jsStatus }),
 
   levelLoadToken: 1,
   measuredLoadToken: 0,
@@ -169,16 +253,12 @@ export const useLevelStore = create<LevelState>((set, get) => ({
     const s = get();
     if (loadToken !== s.levelLoadToken) return; // measurement of a level we've left
     if (s.measuredLoadToken === loadToken && sameWorld(s.worldObjects, objects)) {
-      // Nothing actually moved (e.g. a whitespace edit): keep the old array
-      // so the scene doesn't re-render and the player isn't re-settled.
+      // Nothing moved (e.g. a whitespace edit): keep the old array so the
+      // scene doesn't re-render and the player isn't re-settled.
       set({ worldObjects: s.worldObjects.map((o, i) => ({ ...o, inspect: objects[i].inspect })) });
       return;
     }
-    set({
-      worldObjects: objects,
-      measuredLoadToken: loadToken,
-      worldRevision: s.worldRevision + 1,
-    });
+    set({ worldObjects: objects, measuredLoadToken: loadToken, worldRevision: s.worldRevision + 1 });
   },
 
   loadLevel: (index) => {
@@ -188,8 +268,13 @@ export const useLevelStore = create<LevelState>((set, get) => ({
       phase: "intro",
       html: level.html,
       css: level.css,
+      js: level.js ?? "",
+      appliedHtml: level.html,
       appliedCss: level.css,
-      cssIssues: [],
+      ranJs: level.js ?? "",
+      issues: noIssues(),
+      console: [],
+      jsStatus: { state: "idle" },
       levelLoadToken: s.levelLoadToken + 1,
       result: null,
       hintRung: 0,
@@ -197,24 +282,30 @@ export const useLevelStore = create<LevelState>((set, get) => ({
       guideDismissed: false,
       flatten: false,
       selectedKey: null,
-      sidePanelTab: "lesson",
+      hoveredKey: null,
+      sidePanelTab: "learn",
     }));
   },
 
-  startLevel: () => set({ phase: "playing" }),
+  startLevel: () => set({ phase: "playing", sidePanelTab: LEVELS[get().levelIndex].edit }),
 
   resetLevel: () => {
     const level = LEVELS[get().levelIndex];
     set((s) => ({
       html: level.html,
       css: level.css,
+      js: level.js ?? "",
+      appliedHtml: level.html,
       appliedCss: level.css,
-      cssIssues: [],
+      ranJs: level.js ?? "",
+      issues: noIssues(),
+      console: [],
+      jsStatus: { state: "idle" },
+      levelLoadToken: s.levelLoadToken + 1,
       result: null,
       phase: "playing",
       falls: 0,
       selectedKey: null,
-      respawnToken: s.respawnToken + 1,
     }));
   },
 
@@ -222,29 +313,25 @@ export const useLevelStore = create<LevelState>((set, get) => ({
     const s = get();
     if (s.phase !== "playing") return;
     const level = LEVELS[s.levelIndex];
-    const rubric = level.rubric(s.appliedCss);
+    const rubric = level.rubric({ html: s.appliedHtml, css: s.appliedCss, js: s.ranJs, count: countMatches });
     const assisted = s.hintRung >= 5;
-    const result: LevelResult = {
-      gold: rubric.gold && !assisted,
-      assisted,
-      note: rubric.note,
-      changes: diffCss(level.css, s.appliedCss),
-    };
-    useProgressStore.getState().record(level.id, {
-      completed: true,
-      gold: result.gold,
-      assisted,
-    });
+    const changes: Change[] =
+      level.edit === "css"
+        ? diffCss(level.css, s.appliedCss).map((c) => ({ kind: "css" as const, ...c }))
+        : lineChanges(level.edit, level.edit === "html" ? level.html : level.js ?? "", level.edit === "html" ? s.appliedHtml : s.ranJs);
+    const result: LevelResult = { gold: rubric.gold && !assisted, assisted, note: rubric.note, changes };
+    useProgressStore.getState().record(level.id, { completed: true, gold: result.gold, assisted });
     set({ phase: "debrief", result, selectedKey: null, flatten: false });
   },
 
   nextLevel: () => {
     const s = get();
-    if (s.levelIndex + 1 < LEVELS.length) get().loadLevel(s.levelIndex + 1);
-    else set({ phase: "chapter-complete" });
+    const here = LEVELS[s.levelIndex];
+    const next = LEVELS[s.levelIndex + 1];
+    if (!next) return set({ phase: "chapter-complete" });
+    if (next.chapter !== here.chapter && s.phase === "debrief") return set({ phase: "chapter-complete" });
+    get().loadLevel(s.levelIndex + 1);
   },
-
-  openChapterComplete: () => set({ phase: "chapter-complete" }),
 
   result: null,
 
@@ -263,11 +350,20 @@ export const useLevelStore = create<LevelState>((set, get) => ({
 
   selectedKey: null,
   select: (selectedKey) => set({ selectedKey }),
+  hoveredKey: null,
+  hover: (hoveredKey) => (get().hoveredKey === hoveredKey ? undefined : set({ hoveredKey })),
 
-  cssJump: null,
-  jumpToCss: (line) =>
-    set((s) => ({ cssJump: { line, nonce: (s.cssJump?.nonce ?? 0) + 1 }, sidePanelTab: "css" })),
-  sidePanelTab: "lesson",
+  view: "3d",
+  toggleView: () => set((s) => ({ view: s.view === "3d" ? "side" : "3d" })),
+
+  moved: false,
+  jumped: false,
+  noteMoved: () => (get().moved ? undefined : set({ moved: true })),
+  noteJumped: () => (get().jumped ? undefined : set({ jumped: true })),
+
+  jump: null,
+  jumpTo: (file, line) => set((s) => ({ jump: { file, line, nonce: (s.jump?.nonce ?? 0) + 1 }, sidePanelTab: file })),
+  sidePanelTab: "learn",
   setSidePanelTab: (sidePanelTab) => set({ sidePanelTab }),
 }));
 

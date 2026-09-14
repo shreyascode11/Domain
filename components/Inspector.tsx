@@ -2,6 +2,8 @@
 
 import { useLevelStore } from "@/lib/store";
 import { LEVELS } from "@/lib/levels";
+import { listenersFor } from "@/lib/stage";
+import { IconX } from "./Icons";
 
 const round = (n: number) => Math.round(n * 10) / 10;
 
@@ -45,9 +47,13 @@ export function Inspector() {
   const object = useLevelStore((s) => s.worldObjects.find((o) => o.key === s.selectedKey));
   const concept = useLevelStore((s) => LEVELS[s.levelIndex].concept);
   const select = useLevelStore((s) => s.select);
-  const jumpToCss = useLevelStore((s) => s.jumpToCss);
+  const jumpTo = useLevelStore((s) => s.jumpTo);
+  // Re-read listeners whenever the script runs again.
+  useLevelStore((s) => s.jsRunToken);
+  const hasJs = useLevelStore((s) => LEVELS[s.levelIndex].js !== undefined);
 
   if (!key || !object) return null;
+  const listeners = hasJs ? listenersFor(key) : [];
   const info = object.inspect;
   const el = toHtmlOpen(info.selector);
   const flexRows = (f: { flexDirection: string; justifyContent: string; alignItems: string; gap: string }) => [
@@ -85,10 +91,21 @@ export function Inspector() {
             </div>
           </div>
           <button onClick={() => select(null)} className="btn btn-ghost btn-sm px-2!" aria-label="Close inspector">
-            ✕
+            <IconX size={14} />
           </button>
         </div>
         <div className="mt-1 break-all font-mono text-[10.5px] text-ink-500">{info.breadcrumb.join(" › ")}</div>
+
+        {hasJs && (
+          <Section title="JavaScript listening">
+            {listeners.length === 0 ? (
+              <div className="text-ink-400">No event listeners on this element.</div>
+            ) : (
+              listeners.map((type) => <Row key={type} label="addEventListener" value={`"${type}"`} highlight />)
+            )}
+            {listeners.includes("click") && <div className="mt-1 text-[11px] text-teal-300">Click the block in the world to fire it.</div>}
+          </Section>
+        )}
 
         <Section title="Box">
           <Row label="size" value={`${round(info.width)} × ${round(info.height)}px`} />
@@ -131,7 +148,7 @@ export function Inspector() {
                   <span className="text-gold-300">
                     {r.selector} <span className="text-ink-500">{"{"}</span>
                   </span>
-                  <button onClick={() => jumpToCss(r.line)} className="hud-label text-[10px] text-teal-300 hover:text-teal-300 hover:underline">
+                  <button onClick={() => jumpTo("css", r.line)} className="hud-label text-[10px] text-teal-300 hover:text-teal-300 hover:underline">
                     Edit · line {r.line}
                   </button>
                 </div>

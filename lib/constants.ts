@@ -12,11 +12,11 @@ export const SCALE = 60;
 
 /** Depth (z) step applied per unit of DOM nesting / stacking order, so the
  * scene reads as genuinely three-dimensional instead of a flat billboard. */
-export const CONTAINER_DEPTH = -1.4;
+export const CONTAINER_DEPTH = -1.15;
 export const DEPTH_PER_Z_INDEX = 0.18;
 
 /** Extrusion depth (z-thickness) of a leaf platform slab. */
-export const PLATFORM_DEPTH = 1.1;
+export const PLATFORM_DEPTH = 1.9;
 
 /** Debounce, in ms, between the last keystroke and a re-render of the world.
  * The blueprint suggests ~120ms, but that is shorter than the pause between

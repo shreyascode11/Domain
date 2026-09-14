@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import Link from "next/link";
 import { HiddenStage } from "./HiddenStage";
 import { Scene3D } from "./Scene3D";
@@ -8,29 +8,106 @@ import { Hud } from "./Hud";
 import { CodePanel } from "./CodePanel";
 import { Inspector } from "./Inspector";
 import { IntroOverlay, DebriefOverlay, ChapterCompleteOverlay, LevelMap } from "./Overlays";
+import { SiteOverlay } from "./SiteBuild";
+import { IconMap, IconMute, IconSite, IconSound } from "./Icons";
 import { useLevelStore, useProgressStore, firstIncompleteIndex, isUnlocked } from "@/lib/store";
-import { CHAPTER_5, LEVELS } from "@/lib/levels";
+import { CHAPTERS, LEVELS, chapterOf, levelsIn } from "@/lib/levels";
 import { STAGE_WIDTH, STAGE_HEIGHT } from "@/lib/constants";
+import { cameraInput, touchInput, LOOK_LIMIT, ZOOM_LIMIT } from "@/lib/input";
+import { isTypingTarget } from "@/hooks/useKeyboardControls";
+import { sound } from "@/lib/audio";
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+function TouchButton({ label, input, children }: { label: string; input: keyof typeof touchInput; children: React.ReactNode }) {
+  const set = (on: boolean) => (e: ReactPointerEvent) => {
+    e.preventDefault();
+    touchInput[input] = on;
+  };
+  return (
+    <button
+      aria-label={label}
+      onPointerDown={set(true)}
+      onPointerUp={set(false)}
+      onPointerCancel={set(false)}
+      onPointerLeave={set(false)}
+      onContextMenu={(e) => e.preventDefault()}
+      className="panel-soft pointer-events-auto flex h-14 w-14 select-none items-center justify-center text-xl text-gold-200 active:bg-gold-400/20"
+    >
+      {children}
+    </button>
+  );
+}
 
 /**
- * The Level View (blueprint §11.2): viewport + side panel. The 3D view fills
- * the space; the page it's built from is always laid out at a fixed
- * STAGE_WIDTH × STAGE_HEIGHT (see lib/constants.ts) so the px → world-unit
- * mapping stays exact.
+ * The level view: 3D world + side panel. The page the world is built from
+ * is always laid out at a fixed STAGE_WIDTH × STAGE_HEIGHT (lib/constants.ts)
+ * so the px → world-unit mapping stays exact.
  */
 export function PlayClient() {
   const flatten = useLevelStore((s) => s.flatten);
   const phase = useLevelStore((s) => s.phase);
+  const levelIndex = useLevelStore((s) => s.levelIndex);
   const loadLevel = useLevelStore((s) => s.loadLevel);
   const progress = useProgressStore((s) => s.levels);
   const worldReady = useLevelStore((s) => s.measuredLoadToken === s.levelLoadToken);
   const [hydrated, setHydrated] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
-  const [worldFocused, setWorldFocused] = useState(false);
+  const [siteOpen, setSiteOpen] = useState(false);
+  const [typing, setTyping] = useState(false);
+  const [muted, setMuted] = useState(false);
+  const [coarse, setCoarse] = useState(false);
   const viewportRef = useRef<HTMLDivElement>(null);
   const [pageScale, setPageScale] = useState(1);
+  const drag = useRef<{ id: number; x: number; y: number } | null>(null);
+  const chapter = chapterOf(LEVELS[levelIndex]);
 
-  // The 3D view fills the space; the flattened page is scaled to fit inside it.
+  // Browser-only state, read after mount so server and client HTML agree.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMuted(sound.isMuted());
+    setCoarse(window.matchMedia("(pointer: coarse)").matches);
+  }, []);
+
+  // Is the keyboard typing into an editor right now?
+  useEffect(() => {
+    const update = () => setTyping(isTypingTarget(document.activeElement));
+    const later = () => setTimeout(update, 0);
+    document.addEventListener("focusin", update);
+    document.addEventListener("focusout", later);
+    return () => {
+      document.removeEventListener("focusin", update);
+      document.removeEventListener("focusout", later);
+    };
+  }, []);
+
+  // Shortcuts work whenever you aren't typing — no need to click the world first.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
+      if (isTypingTarget(e.target)) return;
+      if (e.target instanceof HTMLElement && e.target.closest("[role='dialog']") && e.code !== "Escape") return;
+      if (e.code === "KeyM") {
+        setSiteOpen(false);
+        setMapOpen((open) => !open);
+        return;
+      }
+      if (e.code === "KeyB") {
+        setMapOpen(false);
+        setSiteOpen((open) => !open);
+        return;
+      }
+      const s = useLevelStore.getState();
+      if (s.phase !== "playing" || mapOpen || siteOpen) return;
+      if (e.code === "KeyF") s.toggleFlatten();
+      else if (e.code === "KeyR") s.respawn();
+      else if (e.code === "KeyV") s.toggleView();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mapOpen, siteOpen]);
+
+  // The flattened page is scaled to fit inside the viewport.
   useEffect(() => {
     const el = viewportRef.current;
     if (!el) return;
@@ -42,8 +119,7 @@ export function PlayClient() {
     return () => ro.disconnect();
   }, []);
 
-  // Load saved progress, then open the first level you haven't finished
-  // (or ?level=N, if that level is unlocked).
+  // Load saved progress, then open the first unfinished level (or ?level=N if unlocked).
   useEffect(() => {
     Promise.resolve(useProgressStore.persist.rehydrate()).then(() => {
       const saved = useProgressStore.getState().levels;
@@ -57,18 +133,43 @@ export function PlayClient() {
     });
   }, [loadLevel]);
 
-  // Focus the world when a level starts so the keys work straight away.
+  // Wheel zoom without scrolling the page (needs a non-passive listener).
   useEffect(() => {
-    if (phase === "playing") viewportRef.current?.focus({ preventScroll: true });
-  }, [phase]);
+    const el = viewportRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      const s = useLevelStore.getState();
+      if (s.phase !== "playing" || s.flatten) return;
+      // A dialog over the world (the map, a hint) scrolls itself instead.
+      if (e.target instanceof Element && e.target.closest('[role="dialog"]')) return;
+      e.preventDefault();
+      cameraInput.zoom = clamp(cameraInput.zoom * Math.exp(e.deltaY * 0.0012), ZOOM_LIMIT.min, ZOOM_LIMIT.max);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
 
-  // World shortcuts — only while the world itself has focus, never while typing.
-  const onWorldKey = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.target !== viewportRef.current || phase !== "playing") return;
-    const s = useLevelStore.getState();
-    if (e.code === "KeyF") s.toggleFlatten();
-    else if (e.code === "KeyR") s.respawn();
-    else if (e.code === "KeyM") setMapOpen(true);
+  // Right- or middle-drag looks around; the view springs back when released.
+  const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (document.activeElement instanceof HTMLElement && isTypingTarget(document.activeElement)) document.activeElement.blur();
+    if (e.button !== 2 && e.button !== 1) return;
+    e.preventDefault();
+    drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
+    cameraInput.dragging = true;
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const d = drag.current;
+    if (!d || d.id !== e.pointerId) return;
+    cameraInput.lookYaw = clamp(cameraInput.lookYaw - (e.clientX - d.x) * 0.004, -LOOK_LIMIT.yaw, LOOK_LIMIT.yaw);
+    cameraInput.lookPitch = clamp(cameraInput.lookPitch + (e.clientY - d.y) * 0.003, -LOOK_LIMIT.pitch, LOOK_LIMIT.pitch);
+    d.x = e.clientX;
+    d.y = e.clientY;
+  };
+  const endDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (drag.current?.id !== e.pointerId) return;
+    drag.current = null;
+    cameraInput.dragging = false;
   };
 
   const completed = LEVELS.filter((l) => progress[l.id]?.completed).length;
@@ -76,40 +177,75 @@ export function PlayClient() {
   return (
     <div className="bg-night-map flex h-screen w-full flex-col text-ink-100">
       <header className="relative flex h-14 shrink-0 items-center justify-between gap-4 border-b border-gold-600/30 bg-linear-to-b from-ink-850 to-ink-900 px-5">
-        <div className="flex items-center gap-4">
+        <div className="flex min-w-0 items-center gap-4">
           <Link href="/" className="title-inscription font-display text-xl font-black tracking-[0.2em]">
             DOMAIN
           </Link>
-          <span className="hud-label hidden text-[11px] text-ink-400 md:inline">
-            Chapter {CHAPTER_5.number} · {CHAPTER_5.title}
+          <span className="hud-label hidden truncate text-[11px] text-ink-400 md:inline">
+            Chapter {chapter.number} · {chapter.subject} · {chapter.title}
           </span>
         </div>
-        <div className="flex items-center gap-4">
-          <div className="hidden items-center gap-1.5 sm:flex" aria-label={`${completed} of ${LEVELS.length} quests complete`}>
-            {LEVELS.map((l, i) => {
-              const p = progress[l.id];
+        <div className="flex items-center gap-3">
+          <div className="hidden items-end gap-4 xl:flex" aria-label={`${completed} of ${LEVELS.length} lessons complete`}>
+            {CHAPTERS.map((c) => {
+              const inChapter = levelsIn(c.number);
+              const done = inChapter.filter((l) => progress[l.id]?.completed).length;
+              const gold = inChapter.filter((l) => progress[l.id]?.gold).length;
+              const active = c.number === chapter.number;
               return (
-                <span key={l.id} className="flex items-center gap-1.5">
-                  {i > 0 && <span className={`h-px w-4 ${progress[LEVELS[i - 1].id]?.completed ? "bg-gold-500/70" : "bg-ink-600"}`} />}
-                  <span
-                    title={l.title}
-                    className={`block h-3 w-3 rotate-45 border ${
-                      p?.gold
-                        ? "border-gold-300 bg-gold-400 shadow-[0_0_10px_rgba(224,184,95,0.7)]"
-                        : p?.completed
-                          ? "border-jade-400 bg-jade-600"
-                          : "border-ink-500 bg-ink-800"
-                    }`}
-                  />
-                </span>
+                <div key={c.number} className="flex w-16 flex-col gap-1" title={`${c.subject}: ${done}/${inChapter.length} complete · ${gold} gold`}>
+                  <div className="hud-label flex items-baseline justify-between text-[10px]">
+                    <span className={active ? "text-gold-300" : "text-ink-500"}>{c.subject}</span>
+                    <span className={active ? "text-ink-300" : "text-ink-600"}>
+                      {done}/{inChapter.length}
+                    </span>
+                  </div>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-ink-700">
+                    <div
+                      className={`h-full rounded-full transition-[width] ${active ? "bg-linear-to-r from-jade-500 to-gold-400" : "bg-ink-500"}`}
+                      style={{ width: `${(done / inChapter.length) * 100}%` }}
+                    />
+                  </div>
+                </div>
               );
             })}
-            <span className="hud-label ml-2 text-[12px] text-ink-300">
-              {completed}/{LEVELS.length}
-            </span>
           </div>
-          <button onClick={() => setMapOpen(true)} className="btn btn-ghost btn-sm">
-            Map <span className="keycap">M</span>
+          <span className="hud-label text-[12px] text-ink-300">
+            {completed}/{LEVELS.length}
+          </span>
+          <button
+            onClick={(e) => {
+              const next = sound.toggleMute();
+              setMuted(next);
+              if (!next) sound.click();
+              if (e.detail > 0) e.currentTarget.blur();
+            }}
+            className="btn btn-ghost btn-sm"
+            title={muted ? "Unmute sound" : "Mute sound"}
+            aria-label={muted ? "Unmute sound" : "Mute sound"}
+          >
+            {muted ? <IconMute size={15} /> : <IconSound size={15} />}
+          </button>
+          <button
+            onClick={(e) => {
+              setMapOpen(false);
+              setSiteOpen(true);
+              if (e.detail > 0) e.currentTarget.blur();
+            }}
+            className="btn btn-ghost btn-sm"
+            title="See the website you're building"
+          >
+            <IconSite size={15} /> My site <span className="keycap">B</span>
+          </button>
+          <button
+            onClick={(e) => {
+              setSiteOpen(false);
+              setMapOpen(true);
+              if (e.detail > 0) e.currentTarget.blur();
+            }}
+            className="btn btn-ghost btn-sm"
+          >
+            <IconMap size={15} /> Map <span className="keycap">M</span>
           </button>
         </div>
       </header>
@@ -118,17 +254,17 @@ export function PlayClient() {
         <div className="flex h-[62vh] min-h-105 min-w-0 p-3 lg:h-auto lg:flex-[1.65]">
           <div
             ref={viewportRef}
-            tabIndex={0}
-            aria-label="Game world. Use A and D or the arrow keys to move, and Space to jump."
-            onKeyDown={onWorldKey}
-            onPointerDown={() => viewportRef.current?.focus({ preventScroll: true })}
-            onFocus={() => setWorldFocused(true)}
-            onBlur={(e) => {
-              if (!e.currentTarget.contains(e.relatedTarget as Node)) setWorldFocused(false);
-            }}
+            data-world
+            tabIndex={-1}
+            aria-label="Game world. A and D or the arrow keys move, Space jumps. Right-drag to look around, scroll to zoom."
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+            onContextMenu={(e) => e.preventDefault()}
             className={`relative h-full w-full overflow-hidden bg-ink-950 outline-none transition-shadow ${
-              worldFocused && phase === "playing"
-                ? "shadow-[0_0_0_1px_rgba(63,224,200,0.7),0_0_30px_-4px_rgba(63,224,200,0.35)]"
+              !typing && phase === "playing"
+                ? "shadow-[0_0_0_1px_rgba(63,224,200,0.55),0_0_30px_-6px_rgba(63,224,200,0.3)]"
                 : "shadow-[0_0_0_1px_rgba(199,154,62,0.35)]"
             }`}
           >
@@ -150,17 +286,34 @@ export function PlayClient() {
                 <span className="hud-label text-[13px] text-gold-300">Raising the world from the page…</span>
               </div>
             )}
-            <Hud worldFocused={worldFocused} />
+            <Hud typing={typing} />
             {!flatten && phase === "playing" && <Inspector />}
+
+            {coarse && phase === "playing" && !flatten && (
+              <div className="pointer-events-none absolute inset-x-3 bottom-14 z-10 flex justify-between">
+                <div className="flex gap-2">
+                  <TouchButton label="Move left" input="left">
+                    ◀
+                  </TouchButton>
+                  <TouchButton label="Move right" input="right">
+                    ▶
+                  </TouchButton>
+                </div>
+                <TouchButton label="Jump" input="jump">
+                  ▲
+                </TouchButton>
+              </div>
+            )}
 
             {hydrated && phase === "intro" && <IntroOverlay />}
             {phase === "debrief" && <DebriefOverlay />}
             {phase === "chapter-complete" && <ChapterCompleteOverlay onOpenMap={() => setMapOpen(true)} />}
             {mapOpen && <LevelMap onClose={() => setMapOpen(false)} />}
+            {siteOpen && <SiteOverlay currentId={LEVELS[levelIndex].id} onClose={() => setSiteOpen(false)} />}
           </div>
         </div>
 
-        <div className="min-h-80 flex-1 border-t border-gold-600/25 lg:min-h-0 lg:min-w-95 lg:max-w-140 lg:border-l lg:border-t-0">
+        <div className="min-h-80 flex-1 border-t border-gold-600/25 lg:min-h-0 lg:min-w-100 lg:max-w-150 lg:border-l lg:border-t-0">
           <CodePanel />
         </div>
       </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { touchInput } from "@/lib/input";
 
 export type ControlState = {
   left: boolean;
@@ -20,39 +21,42 @@ const KEY_MAP: Record<string, keyof ControlState> = {
   ArrowUp: "jump",
 };
 
-/**
- * Keys belong to whatever has focus. Typing `display` in the CSS panel must
- * not walk the player left, and pressing Space on a focused button must
- * press the button — not jump.
- */
-function belongsToSomethingElse(target: EventTarget | null) {
+/** True while the keyboard is being used to type somewhere. */
+export function isTypingTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
   if (target.isContentEditable) return true;
-  return !!target.closest("input, textarea, select, button, a[href], [contenteditable], .cm-editor, [role='dialog']");
+  return !!target.closest("input, textarea, select, [contenteditable], .cm-editor");
 }
 
-/** Live keyboard state for the player controller, read once per physics
- * frame rather than via re-rendering React on every keystroke. */
+/**
+ * Live movement keys for the player, read once per frame rather than via
+ * React state. Keys control Dom whenever you aren't typing — no need to
+ * click the world first. While an editor has focus, keys type; press Esc
+ * to leave the editor and play.
+ */
 export function useKeyboardControls() {
-  const state = useRef<ControlState>({ left: false, right: false, jump: false });
+  const keys = useRef<ControlState>({ left: false, right: false, jump: false });
+  const merged = useRef<ControlState>({ left: false, right: false, jump: false });
 
   useEffect(() => {
     const clear = () => {
-      for (const k of Object.keys(state.current) as (keyof ControlState)[]) state.current[k] = false;
+      keys.current.left = keys.current.right = keys.current.jump = false;
     };
     const down = (e: KeyboardEvent) => {
       const key = KEY_MAP[e.code];
-      if (!key || belongsToSomethingElse(e.target)) return;
+      if (!key || isTypingTarget(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
+      // Space on a focused button presses the button, not jump.
+      if (key === "jump" && e.code === "Space" && e.target instanceof HTMLElement && e.target.closest("button, a[href], [role='button']")) return;
+      if (e.target instanceof HTMLElement && e.target.closest("[role='dialog']")) return;
       e.preventDefault(); // no page scrolling on arrows/space
-      state.current[key] = true;
+      keys.current[key] = true;
     };
     const up = (e: KeyboardEvent) => {
       const key = KEY_MAP[e.code];
-      if (!key) return;
-      state.current[key] = false;
+      if (key) keys.current[key] = false;
     };
     const focusIn = (e: FocusEvent) => {
-      if (belongsToSomethingElse(e.target)) clear();
+      if (isTypingTarget(e.target)) clear();
     };
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
@@ -66,5 +70,13 @@ export function useKeyboardControls() {
     };
   }, []);
 
-  return state;
+  // Keyboard and on-screen touch buttons, combined.
+  return {
+    get current() {
+      merged.current.left = keys.current.left || touchInput.left;
+      merged.current.right = keys.current.right || touchInput.right;
+      merged.current.jump = keys.current.jump || touchInput.jump;
+      return merged.current;
+    },
+  };
 }

@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState, type MouseEvent } from "react";
-import { useLevelStore } from "@/lib/store";
-import { CHAPTER_5, HINT_RUNGS, LEVELS } from "@/lib/levels";
+import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
+import { useLevelStore, useProgressStore } from "@/lib/store";
+import { HINT_RUNGS, LEVELS, chapterOf, levelsIn } from "@/lib/levels";
 import { Code } from "./Code";
 import { GuidePortrait } from "./Emblems";
+import { IconCube, IconLayers, IconReset, IconRespawn, IconSide } from "./Icons";
 
 /** After a mouse click, hand focus back so the keyboard drives the player. */
 function clicked(action: () => void) {
@@ -13,6 +14,8 @@ function clicked(action: () => void) {
     if (e.detail > 0) e.currentTarget.blur();
   };
 }
+
+const FILE_LABEL = { html: "HTML", css: "CSS", js: "JavaScript" } as const;
 
 function GuideBubble() {
   const phase = useLevelStore((s) => s.phase);
@@ -32,30 +35,28 @@ function GuideBubble() {
 
   useEffect(() => {
     if (phase !== "playing") return;
-    const t = setTimeout(() => setStuckKey(attemptKey), 60_000);
+    const t = setTimeout(() => setStuckKey(attemptKey), 75_000);
     return () => clearTimeout(t);
   }, [phase, attemptKey]);
 
   if (phase !== "playing") return null;
 
   const rung = showingRung !== null && showingRung < hintRung ? showingRung : null;
-  const offer = !dismissed && hintRung === 0 && (falls >= 2 || stuckForAWhile);
+  const offer = !dismissed && hintRung === 0 && (falls >= 3 || stuckForAWhile);
   if (rung === null && !offer) return null;
 
   return (
-    <div role="status" className="rise-in pointer-events-auto absolute bottom-14 left-1/2 z-10 w-[min(460px,92%)] -translate-x-1/2">
+    <div role="status" className="rise-in pointer-events-auto absolute bottom-16 left-1/2 z-10 w-[min(460px,92%)] -translate-x-1/2">
       <div className="panel flex gap-3 px-4 py-3">
         <GuidePortrait size={44} />
         <div className="min-w-0 flex-1 text-[14px] leading-snug text-ink-100">
-          <div className="hud-label text-[11px] text-gold-400">
-            The Old Ant{rung !== null ? ` · ${HINT_RUNGS[rung]}` : ""}
-          </div>
+          <div className="hud-label text-[11px] text-gold-400">The Old Ant{rung !== null ? ` · ${HINT_RUNGS[rung]}` : ""}</div>
           {rung !== null ? (
             <Code text={level.hints[rung]} />
           ) : (
             <>
-              {falls >= 2 ? "That jump can't be made the way the page is laid out. " : ""}
-              The world won&apos;t change until the CSS does. Shall I point you somewhere?
+              {falls >= 3 ? "Jumping harder won't help — the page itself has to change. " : ""}
+              The world only changes when the {FILE_LABEL[level.edit]} does. Want a nudge?
             </>
           )}
           <div className="mt-2 flex flex-wrap gap-2">
@@ -63,12 +64,12 @@ function GuideBubble() {
               <>
                 <button
                   onClick={clicked(() => {
-                    setTab("lesson");
+                    setTab("learn");
                     setShowingRung(null);
                   })}
                   className="btn btn-ghost btn-sm"
                 >
-                  More in the Lesson tab
+                  More hints in Learn
                 </button>
                 <button onClick={clicked(() => setShowingRung(null))} className="btn btn-sm text-ink-300 hover:text-ink-100">
                   Close
@@ -97,26 +98,87 @@ function GuideBubble() {
   );
 }
 
-export function Hud({ worldFocused }: { worldFocused: boolean }) {
+function Step({ done, children }: { done: boolean; children: ReactNode }) {
+  return (
+    <span className={`flex items-center gap-1.5 ${done ? "text-jade-400" : "text-ink-200"}`}>
+      <span className={`h-2 w-2 rotate-45 border ${done ? "border-jade-400 bg-jade-400" : "border-ink-400"}`} aria-hidden />
+      {children}
+    </span>
+  );
+}
+
+/** Teaches the controls on the first level, then gets out of the way. */
+function ControlsCoach({ typing }: { typing: boolean }) {
+  const moved = useLevelStore((s) => s.moved);
+  const jumped = useLevelStore((s) => s.jumped);
+  const seen = useProgressStore((s) => s.seenControls);
+  const markSeen = useProgressStore((s) => s.markControlsSeen);
+  const learned = seen || (moved && jumped);
+
+  useEffect(() => {
+    if (moved && jumped && !seen) markSeen();
+  }, [moved, jumped, seen, markSeen]);
+
+  if (typing) {
+    return (
+      <div className="panel-soft flex items-center gap-2 px-3 py-1.5 text-[12.5px] text-teal-300">
+        Typing in the editor. Press <span className="keycap">Esc</span> to control Dom again.
+      </div>
+    );
+  }
+
+  return (
+    <div className="panel-soft flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-1.5 text-[12px] text-ink-300">
+      {learned ? (
+        <>
+          <span className="flex items-center gap-1">
+            <span className="keycap">A</span>
+            <span className="keycap">D</span>
+            <span className="hud-label ml-0.5 text-[11px]">Move</span>
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="keycap">Space</span>
+            <span className="hud-label ml-0.5 text-[11px]">Jump</span>
+          </span>
+          <span className="hidden text-[11px] text-ink-400 md:inline">Right-drag look · Scroll zoom · Click a block to inspect</span>
+        </>
+      ) : (
+        <>
+          <span className="hud-label text-[11px] text-gold-400">Controls</span>
+          <Step done={moved}>
+            <span className="keycap">A</span>
+            <span className="keycap">D</span> or arrows to walk
+          </Step>
+          <Step done={jumped}>
+            <span className="keycap">Space</span> to jump
+          </Step>
+        </>
+      )}
+    </div>
+  );
+}
+
+export function Hud({ typing }: { typing: boolean }) {
   const phase = useLevelStore((s) => s.phase);
   const flatten = useLevelStore((s) => s.flatten);
   const toggleFlatten = useLevelStore((s) => s.toggleFlatten);
   const resetLevel = useLevelStore((s) => s.resetLevel);
   const respawn = useLevelStore((s) => s.respawn);
+  const view = useLevelStore((s) => s.view);
+  const toggleView = useLevelStore((s) => s.toggleView);
   const levelIndex = useLevelStore((s) => s.levelIndex);
   const falls = useLevelStore((s) => s.falls);
   const level = LEVELS[levelIndex];
+  const chapter = chapterOf(level);
   const playing = phase === "playing";
 
   return (
     <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-3">
       <div className="flex items-start justify-between gap-3">
-        <div className="panel-soft pointer-events-auto max-w-90 px-3.5 py-2.5">
+        <div className="panel-soft pointer-events-auto max-w-96 px-3.5 py-2.5">
           <div className="hud-label flex items-center gap-2 text-[11px] text-gold-400">
-            <span>Ch {CHAPTER_5.number}</span>
-            <span className="text-ink-500">◆</span>
             <span>
-              Quest {level.number}/{LEVELS.length}
+              {chapter.subject} · Lesson {level.number}/{levelsIn(chapter.number).length}
             </span>
             {falls > 0 && (
               <>
@@ -133,14 +195,21 @@ export function Hud({ worldFocused }: { worldFocused: boolean }) {
 
         {playing && (
           <div className="pointer-events-auto flex flex-wrap justify-end gap-2">
+            {!flatten && (
+              <button onClick={clicked(toggleView)} className="btn btn-ghost btn-sm" title="Switch camera (V)">
+                {view === "3d" ? <IconCube size={14} /> : <IconSide size={14} />}
+                {view === "3d" ? "3D view" : "Side view"} <span className="keycap">V</span>
+              </button>
+            )}
             <button onClick={clicked(toggleFlatten)} aria-pressed={flatten} className="btn btn-ghost btn-sm" title="See the ordinary web page this world is built from">
-              {flatten ? "Back to 3D" : "Flatten"} <span className="keycap">F</span>
+              <IconLayers size={14} />
+              {flatten ? "Back to 3D" : "Web page"} <span className="keycap">F</span>
             </button>
-            <button onClick={clicked(respawn)} className="btn btn-ghost btn-sm">
-              Respawn <span className="keycap">R</span>
+            <button onClick={clicked(respawn)} className="btn btn-ghost btn-sm" title="Put Dom back at the start">
+              <IconRespawn size={14} /> <span className="keycap">R</span>
             </button>
-            <button onClick={clicked(resetLevel)} className="btn btn-ghost btn-sm" title="Put the CSS back to how the level started">
-              Reset CSS
+            <button onClick={clicked(resetLevel)} className="btn btn-ghost btn-sm" title={`Put the ${FILE_LABEL[level.edit]} back to how the level started`}>
+              <IconReset size={14} /> Reset code
             </button>
           </div>
         )}
@@ -148,30 +217,13 @@ export function Hud({ worldFocused }: { worldFocused: boolean }) {
 
       {playing && !flatten && (
         <div className="flex items-end justify-between gap-3">
-          <div className="panel-soft flex items-center gap-3 px-3 py-1.5 text-[12px] text-ink-300">
-            {worldFocused ? (
-              <>
-                <span className="flex items-center gap-1">
-                  <span className="keycap">A</span>
-                  <span className="keycap">D</span>
-                  <span className="hud-label ml-0.5 text-[11px]">Move</span>
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="keycap">Space</span>
-                  <span className="hud-label ml-0.5 text-[11px]">Jump</span>
-                </span>
-                <span className="hud-label text-[11px] text-teal-300">Click a block to inspect</span>
-              </>
-            ) : (
-              <span className="hud-label text-[12px] text-ember-300">Click the world to take control</span>
-            )}
-          </div>
+          <ControlsCoach typing={typing} />
         </div>
       )}
 
       {playing && flatten && (
         <div className="panel-soft self-start px-3 py-1.5 text-[13px] text-ink-100">
-          This is the web page your world is made of. Every block you stand on is one of these boxes.
+          This is the real web page your world is made of. Every block you stand on is one of these boxes.
         </div>
       )}
 

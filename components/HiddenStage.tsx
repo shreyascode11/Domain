@@ -3,8 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import { useLevelStore } from "@/lib/store";
 import { measureDocument, boxesToWorldObjects } from "@/lib/layout";
-import { validateCss } from "@/lib/cssParse";
+import { validateCss, parseCss } from "@/lib/cssParse";
+import { validateHtml } from "@/lib/htmlParse";
+import { checkJs, prepareStageWindow, resetStageEnv, runInStage } from "@/lib/jsRun";
+import { setStage } from "@/lib/stage";
 import { RENDER_DEBOUNCE_MS, STAGE_WIDTH, STAGE_HEIGHT } from "@/lib/constants";
+import { LEVELS } from "@/lib/levels";
+import { sound } from "@/lib/audio";
 
 // A minimal, honest reset: kill the default body margin so (0,0) in the
 // document matches (0,0) of the stage, and give the document a fixed
@@ -23,23 +28,21 @@ const RESET_STYLES = `
   }
 `;
 
-const SKELETON = `<!doctype html><html><head><meta charset="utf-8" /><style>${RESET_STYLES}</style><style id="level-css"></style></head><body></body></html>`;
+// The base keeps "#id" links inside this page; without it they resolve against the app's URL and load the app here.
+const SKELETON = `<!doctype html><html><head><meta charset="utf-8" /><base href="about:srcdoc" /><style>${RESET_STYLES}</style><style id="level-css"></style></head><body></body></html>`;
 
 /**
- * The real, hidden DOM. Per blueprint §7.1: layout must be computed by the
- * browser's real engine, not by us.
+ * The real page the world is built from. Per blueprint §7.1: layout is
+ * computed by the browser's own engine, never by us.
  *
- * The document is created once. After that every edit is applied in place
- * — swap the <style> text, swap the body's HTML — and measured immediately
- * (getBoundingClientRect forces a synchronous layout), so there is no page
- * reload between keystrokes and nothing to flicker.
+ * - HTML and CSS apply live (debounced), in place, with no reload — and only
+ *   once they validate, so half-typed code never reaches the world (§9.2:
+ *   "fail soft, keep last good render").
+ * - JavaScript runs when you press Run, on a fresh copy of the HTML.
+ * - Anything that changes the page later — a click handler, a CSS transition —
+ *   is picked up by watching the page and re-measuring each frame it moves.
  *
- * CSS that doesn't validate is never applied: the world keeps showing the
- * last CSS that worked, and the editor explains what's wrong (§9.2: "fail
- * soft, keep last good render").
- *
- * When `visible` is true (Flatten mode) this is literally the page the
- * world is rendered from, shown as-is.
+ * When `visible` (Flatten mode), this is literally the page, scaled to fit.
  */
 export function HiddenStage({ visible, scale = 1 }: { visible: boolean; scale?: number }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -47,7 +50,19 @@ export function HiddenStage({ visible, scale = 1 }: { visible: boolean; scale?: 
 
   const html = useLevelStore((s) => s.html);
   const css = useLevelStore((s) => s.css);
+  const js = useLevelStore((s) => s.js);
   const levelLoadToken = useLevelStore((s) => s.levelLoadToken);
+  const jsRunToken = useLevelStore((s) => s.jsRunToken);
+
+  const lastToken = useRef<number | null>(null);
+  const lastRun = useRef(0);
+  const cleanupJs = useRef<(() => void) | null>(null);
+  const htmlTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cssTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const jsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const frame = useRef<number | null>(null);
+  const observer = useRef<MutationObserver | null>(null);
+  const interactionListenersDoc = useRef<Document | null>(null);
 
   // The page is server-rendered, so the iframe's srcdoc can finish loading
   // before React attaches onLoad. Check for an already-loaded document too.
@@ -56,67 +71,213 @@ export function HiddenStage({ visible, scale = 1 }: { visible: boolean; scale?: 
     if (doc?.readyState === "complete" && doc.getElementById("level-css")) setReady(true);
   }, []);
 
-  const lastToken = useRef<number | null>(null);
-  const lastHtml = useRef<string | null>(null);
-  const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const getDoc = () => {
+    const doc = iframeRef.current?.contentDocument;
+    return doc && doc.getElementById("level-css") ? doc : null;
+  };
 
+  /** Read the page back into the world. Returns whether the world changed. */
+  const measure = () => {
+    const doc = getDoc();
+    if (!doc) return false;
+    const store = useLevelStore.getState();
+    const elements = new Map<string, Element>();
+    const boxes = measureDocument(doc, parseCss(store.appliedCss).rules, elements);
+    setStage(doc, elements);
+    const before = store.worldRevision;
+    store.setWorld(boxesToWorldObjects(boxes, STAGE_WIDTH, STAGE_HEIGHT), store.levelLoadToken);
+    // Keep measuring while a CSS transition or animation is moving things.
+    if (doc.getAnimations().length > 0) scheduleMeasure();
+    return useLevelStore.getState().worldRevision !== before;
+  };
+
+  const scheduleMeasure = () => {
+    if (frame.current !== null) return;
+    frame.current = requestAnimationFrame(() => {
+      frame.current = null;
+      measure();
+    });
+  };
+
+  const runJavaScript = (code: string) => {
+    const doc = getDoc();
+    const win = doc?.defaultView;
+    if (!doc || !win) return;
+    const store = useLevelStore.getState();
+    cleanupJs.current?.();
+    cleanupJs.current = null;
+    if (!code.trim()) {
+      store.setJsStatus({ state: "idle" });
+      return;
+    }
+    const level = LEVELS[store.levelIndex];
+    const env = { api: level.api, modules: level.modules, storage: level.storage, key: level.id };
+    const { result, cleanup } = runInStage(code, win, store.logConsole, env);
+    cleanupJs.current = cleanup;
+    if (result.ok) store.setJsStatus({ state: "ran" });
+    else {
+      store.setJsStatus({ state: "error", message: result.message, hint: result.hint, line: result.line });
+      store.logConsole({ kind: "error", text: result.hint ? `${result.message} ${result.hint}` : result.message });
+    }
+  };
+
+  /** Replace the page's body with this HTML, then re-run the last JavaScript. */
+  const rebuildBody = (markup: string, code: string) => {
+    const doc = getDoc();
+    if (!doc) return;
+    observer.current?.disconnect();
+    cleanupJs.current?.();
+    cleanupJs.current = null;
+    // A link followed in an earlier run (#target) would otherwise keep :target rules applied.
+    const win = doc.defaultView;
+    if (win?.location.hash) {
+      try {
+        win.history.replaceState(null, "", win.location.href.split("#")[0]);
+      } catch {
+        win.location.hash = "";
+      }
+    }
+    doc.body.innerHTML = markup;
+    observeBody(doc);
+    runJavaScript(code);
+  };
+
+  const observeBody = (doc: Document) => {
+    if (!observer.current) observer.current = new MutationObserver(() => scheduleMeasure());
+    observer.current.observe(doc.body, { attributes: true, childList: true, subtree: true, characterData: true });
+    // A checkbox's checked state, and focus itself, aren't DOM mutations —
+    // clicking a real checkbox or button changes live UI state the
+    // MutationObserver above never sees, even though :checked/:focus rules
+    // do apply immediately in the real page. Listen for those directly.
+    if (interactionListenersDoc.current !== doc) {
+      doc.addEventListener("change", scheduleMeasure);
+      doc.addEventListener("focusin", scheduleMeasure);
+      doc.addEventListener("focusout", scheduleMeasure);
+      // A real link to "#id" changes :target too — also not a DOM mutation.
+      doc.defaultView?.addEventListener("hashchange", scheduleMeasure);
+      interactionListenersDoc.current = doc;
+    }
+  };
+
+  // A new level (or a reset): build the page instantly from its starting files.
+  useEffect(() => {
+    if (!ready || lastToken.current === levelLoadToken) return;
+    const doc = getDoc();
+    if (!doc) return;
+    lastToken.current = levelLoadToken;
+    const store = useLevelStore.getState();
+    const level = LEVELS[store.levelIndex];
+    prepareStageWindow(doc.defaultView!, (line) => useLevelStore.getState().logConsole(line));
+    resetStageEnv(doc.defaultView!);
+    const styleEl = doc.getElementById("level-css")!;
+    styleEl.textContent = store.css;
+    rebuildBody(store.html, level.js ?? "");
+    lastRun.current = store.jsRunToken;
+    measure();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, levelLoadToken]);
+
+  // HTML edits.
+  useEffect(() => {
+    if (!ready || lastToken.current !== levelLoadToken) return;
+    if (htmlTimer.current) clearTimeout(htmlTimer.current);
+    htmlTimer.current = setTimeout(() => {
+      const store = useLevelStore.getState();
+      const { issues } = validateHtml(html);
+      store.setIssues("html", issues);
+      if (issues.length || html === store.appliedHtml) return;
+      store.setApplied(html, store.appliedCss);
+      rebuildBody(html, store.ranJs);
+      if (measure()) sound.valid();
+    }, RENDER_DEBOUNCE_MS);
+    return () => {
+      if (htmlTimer.current) clearTimeout(htmlTimer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, html]);
+
+  // CSS edits.
+  useEffect(() => {
+    if (!ready || lastToken.current !== levelLoadToken) return;
+    if (cssTimer.current) clearTimeout(cssTimer.current);
+    cssTimer.current = setTimeout(() => {
+      const doc = getDoc();
+      if (!doc) return;
+      const store = useLevelStore.getState();
+      const { issues } = validateCss(css);
+      store.setIssues("css", issues);
+      if (issues.length || css === store.appliedCss) return;
+      doc.getElementById("level-css")!.textContent = css;
+      store.setApplied(store.appliedHtml, css);
+      if (measure()) sound.valid();
+    }, RENDER_DEBOUNCE_MS);
+    return () => {
+      if (cssTimer.current) clearTimeout(cssTimer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, css]);
+
+  // JavaScript: check syntax as you type (for the squiggles), run only on Run.
   useEffect(() => {
     if (!ready) return;
-
-    const apply = () => {
-      const doc = iframeRef.current?.contentDocument;
-      const styleEl = doc?.getElementById("level-css");
-      if (!doc || !styleEl) return;
-      const store = useLevelStore.getState();
-
-      const { rules, issues } = validateCss(css);
-      store.setCssIssues(issues);
-      const isNewLevel = lastToken.current !== levelLoadToken;
-      if (issues.length > 0 && !isNewLevel) return; // keep last good render
-
-      if (styleEl.textContent !== css) styleEl.textContent = css;
-      if (lastHtml.current !== html || isNewLevel) {
-        doc.body.innerHTML = html;
-        lastHtml.current = html;
-      }
-      lastToken.current = levelLoadToken;
-      store.setApplied(css);
-
-      const boxes = measureDocument(doc, rules);
-      store.setWorld(boxesToWorldObjects(boxes, STAGE_WIDTH, STAGE_HEIGHT), levelLoadToken);
-    };
-
-    if (debounce.current) clearTimeout(debounce.current);
-    if (lastToken.current !== levelLoadToken) {
-      apply(); // a new level loads instantly
-    } else {
-      debounce.current = setTimeout(apply, RENDER_DEBOUNCE_MS);
-    }
+    if (jsTimer.current) clearTimeout(jsTimer.current);
+    jsTimer.current = setTimeout(() => useLevelStore.getState().setIssues("js", checkJs(js).issues), RENDER_DEBOUNCE_MS);
     return () => {
-      if (debounce.current) clearTimeout(debounce.current);
+      if (jsTimer.current) clearTimeout(jsTimer.current);
     };
-  }, [ready, html, css, levelLoadToken]);
+  }, [ready, js]);
 
-  // The iframe is always exactly STAGE_WIDTH × STAGE_HEIGHT CSS px — that is
-  // the page's viewport, and every measurement is taken inside it. When it's
-  // shown (Flatten), it's scaled to fit the view with a CSS transform, which
-  // changes how it looks and never how it lays out.
+  useEffect(() => {
+    if (!ready || jsRunToken === lastRun.current) return;
+    lastRun.current = jsRunToken;
+    const store = useLevelStore.getState();
+    store.clearConsole();
+    const { issues } = checkJs(store.ranJs);
+    store.setIssues("js", issues);
+    if (issues.length) {
+      const i = issues[0];
+      store.setJsStatus({ state: "error", message: i.message, hint: i.hint, line: i.line });
+      sound.error();
+      return;
+    }
+    rebuildBody(store.appliedHtml, store.ranJs);
+    measure();
+    if (useLevelStore.getState().jsStatus.state === "error") sound.error();
+    else sound.valid();
+    // measure/rebuildBody only read refs and the store, so they needn't retrigger this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, jsRunToken]);
+
+  useEffect(
+    () => () => {
+      observer.current?.disconnect();
+      cleanupJs.current?.();
+      if (frame.current !== null) cancelAnimationFrame(frame.current);
+      const doc = interactionListenersDoc.current;
+      doc?.removeEventListener("change", scheduleMeasure);
+      doc?.removeEventListener("focusin", scheduleMeasure);
+      doc?.removeEventListener("focusout", scheduleMeasure);
+      doc?.defaultView?.removeEventListener("hashchange", scheduleMeasure);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+
+  // The iframe is always exactly STAGE_WIDTH × STAGE_HEIGHT CSS px — the
+  // page's viewport, where every measurement is taken. In Flatten it's scaled
+  // to fit with a CSS transform, which changes how it looks, never its layout.
   return (
     <div
       aria-hidden={!visible}
       className="absolute inset-0 flex items-center justify-center overflow-hidden"
-      style={{
-        visibility: visible ? "visible" : "hidden",
-        pointerEvents: visible ? "auto" : "none",
-        background: "#070b16",
-      }}
+      style={{ visibility: visible ? "visible" : "hidden", pointerEvents: visible ? "auto" : "none", background: "#070b16" }}
     >
       <iframe
         ref={iframeRef}
         title="The web page this world is rendered from"
         srcDoc={SKELETON}
         onLoad={() => setReady(true)}
-        sandbox="allow-same-origin"
+        sandbox="allow-same-origin allow-scripts"
         tabIndex={-1}
         style={{
           width: STAGE_WIDTH,
