@@ -95,3 +95,7 @@ Next.js 16 (App Router, Turbopack) · React 19 · React Three Fiber, drei and po
 npm run build   # production build
 npm run lint    # ESLint
 ```
+
+## License
+
+© 2026 Shreyas. All rights reserved. See [LICENSE](LICENSE).
