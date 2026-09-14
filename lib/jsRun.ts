@@ -11,8 +11,8 @@ import type { CssIssue } from "./cssParse";
  * after a generous number of turns and explains why — the same technique
  * CodePen and JS Bin use.
  *
- * Deliberate Phase-0 simplification of blueprint §7.3: the code runs in the
- * stage iframe rather than a Worker with a proxied DOM. It is the learner's
+ * Deliberately simple: the code runs in the stage iframe rather than a
+ * Worker with a proxied DOM. It is the learner's
  * own code in their own browser; nothing is shared with other users.
  */
 

@@ -19,7 +19,7 @@ export const DEPTH_PER_Z_INDEX = 0.18;
 export const PLATFORM_DEPTH = 1.9;
 
 /** Debounce, in ms, between the last keystroke and a re-render of the world.
- * The blueprint suggests ~120ms, but that is shorter than the pause between
+ * ~120ms sounds right, but it is shorter than the pause between
  * keystrokes for most people — the world rebuilt on almost every letter,
  * through half-typed CSS. 250ms waits for a small pause instead, and invalid
  * CSS never reaches the world at all (see HiddenStage). */

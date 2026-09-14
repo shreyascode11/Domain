@@ -32,7 +32,7 @@ const RESET_STYLES = `
 const SKELETON = `<!doctype html><html><head><meta charset="utf-8" /><base href="about:srcdoc" /><style>${RESET_STYLES}</style><style id="level-css"></style></head><body></body></html>`;
 
 /**
- * The real page the world is built from. Per blueprint §7.1: layout is
+ * The real page the world is built from. Layout is
  * computed by the browser's own engine, never by us.
  *
  * - HTML and CSS apply live (debounced), in place, with no reload — and only

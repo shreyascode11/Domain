@@ -1,7 +1,7 @@
 import { CONTAINER_DEPTH, DEPTH_PER_Z_INDEX, PLATFORM_DEPTH, SCALE } from "./constants";
 import type { CssRule } from "./cssParse";
 
-/** What the in-world inspector shows for an element (blueprint §7.4). */
+/** What the in-world inspector shows for an element. */
 export type InspectInfo = {
   selector: string; // e.g. div.stone.start
   breadcrumb: string[]; // ancestors → element
@@ -39,7 +39,7 @@ export type InspectInfo = {
  * A single measured element from the real, hidden DOM: its actual computed
  * layout box, in CSS pixels, exactly as the browser's own engine placed it.
  * Nothing here is invented — it is a read-back of getBoundingClientRect()
- * and getComputedStyle(), per the blueprint's Inviolable Rule #1.
+ * and getComputedStyle().
  */
 export type Box = {
   key: string;
@@ -203,9 +203,8 @@ export type WorldObject = {
 const CONTAINER_THICKNESS = 0.15;
 
 /**
- * The literal geometric mapping described in the blueprint's §7.1:
- * "2D layout box -> 3D slab. x -> x, y -> -y (screen y is inverted), depth
- * from stacking context / z-index." Coordinates are re-centred on the stage.
+ * The geometric mapping: 2D layout box -> 3D slab. x -> x, y -> -y (screen
+ * y is inverted), depth from stacking context / z-index. Coordinates are re-centred on the stage.
  */
 export function boxesToWorldObjects(boxes: Box[], containerWidth: number, containerHeight: number): WorldObject[] {
   return boxes.map((box) => {

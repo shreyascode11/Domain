@@ -38,7 +38,7 @@ function Section({ title, children }: { title: React.ReactNode; children: React.
 }
 
 /**
- * The in-world inspector (blueprint §7.4): point at any object and see the
+ * The in-world inspector: point at any object and see the
  * element, its box, and the rules that shape it — laid out like the
  * browser's own DevTools so the skill transfers.
  */

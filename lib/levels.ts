@@ -52,7 +52,7 @@ export type Level = {
   /** The task, as numbered steps. */
   steps: string[];
   reference: { title: string; syntax: string; entries: ReferenceEntry[] };
-  /** Hint ladder (blueprint §7.6): Notice, Question, Narrow, Re-teach, Reveal. */
+  /** Hint ladder: Notice, Question, Narrow, Re-teach, Reveal. */
   hints: [string, string, string, string, string];
   debrief: { rule: string; seenIn: string; fableLine: string };
   quiz: { question: string; options: string[]; answer: number; explain: string };
