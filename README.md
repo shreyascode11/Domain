@@ -6,6 +6,8 @@
 
 A 3D platformer where every level is a real web page. Fix the HTML, CSS or JavaScript, and walk across what you built.
 
+### [▶ Play it now](https://domain-indol-nine.vercel.app)
+
 ![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
@@ -14,6 +16,10 @@ A 3D platformer where every level is a real web page. Fix the HTML, CSS or JavaS
 ![Lessons](https://img.shields.io/badge/lessons-120-e9a23b)
 ![License](https://img.shields.io/badge/license-All_rights_reserved-lightgrey)
 
+<br>
+
+<img src="docs/screenshots/play.jpg" alt="A lesson in DOMAIN: the 3D world on the left, the HTML editor on the right" width="900">
+
 </div>
 
 ---
@@ -21,6 +27,7 @@ A 3D platformer where every level is a real web page. Fix the HTML, CSS or JavaS
 ## Contents
 
 - [Overview](#overview)
+- [Screenshots](#screenshots)
 - [The course](#the-course)
 - [How it works](#how-it-works)
 - [Tech stack](#tech-stack)
@@ -44,7 +51,17 @@ As you finish lessons you also build a real website, the **Anthill Bakery**. It 
 - **The real browser is the rules engine.** CSS is never simulated: if the browser renders it, the world matches it.
 - **JavaScript runs for real**, with loop guards, beginner-friendly errors, a console, modules, a pretend server for `fetch`, and sandboxed storage.
 - **A website that grows with you**, shown after every lesson as a before-and-after reveal.
+- **It feels like a game:** dust and confetti, a level-clear celebration, XP, eight builder ranks and a daily streak — and the world tells you the moment your code makes the goal reachable.
 - **In-world DevTools:** click any block to inspect its element, box, CSS rules and event listeners, or press **F** to see the flat page.
+
+## Screenshots
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/hero.jpg" alt="The DOMAIN landing page: a twilight sky with floating islands" width="100%"><br><em>Every course starts somewhere. This one starts in the clouds.</em></td>
+<td width="50%"><img src="docs/screenshots/site.jpg" alt="The website you build, with a checklist of pieces earned" width="100%"><br><em>The website you build, one piece per lesson.</em></td>
+</tr>
+</table>
 
 ## The course
 
@@ -167,6 +184,8 @@ flowchart LR
 
 ## Getting started
 
+Play the deployed game at **[domain-indol-nine.vercel.app](https://domain-indol-nine.vercel.app)** — nothing to install. To run it yourself:
+
 **Requirements:** Node.js 20.9 or newer, and npm.
 
 ```bash
@@ -185,7 +204,7 @@ Open <http://localhost:3000> and choose **Start dreaming**, or go straight to `/
 | `npm run start` | Serve the production build |
 | `npm run lint` | Run ESLint |
 
-> **Review mode:** every lesson is currently unlocked. To restore in-order unlocking, set `UNLOCK_ALL_LEVELS` to `false` in `lib/store.ts`.
+> **Tip for development:** lessons unlock in order. To open them all while working on the game, set `UNLOCK_ALL_LEVELS` to `true` in `lib/store.ts`.
 
 ## Controls
 

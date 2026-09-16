@@ -1,10 +1,17 @@
 import type { WorldObject } from "./layout";
-import { BODY, MOVE } from "./physics";
+import { BODY, MOVE, REACH } from "./physics";
 
 type Pad = { key: string; l: number; r: number; top: number; bottom: number; isStart: boolean; isGoal: boolean };
 
-/** Horizontal speed used for reach estimates, a little under full speed to stay honest. */
-const AIR_SPEED = 4.0 * 0.85;
+/**
+ * Horizontal speed to estimate jumps with. A flat jump reaches a little
+ * under REACH.acrossPx — the distance the controller was measured to clear —
+ * because this drives the "the way is open" message: claiming a marginal
+ * jump is open would be a lie, while staying quiet about one is merely
+ * modest. Levels are designed with gaps well inside or well beyond this.
+ */
+const FLAT_AIRTIME = (2 * MOVE.jumpSpeed) / MOVE.gravity;
+const AIR_SPEED = (REACH.acrossPx * 0.92) / 60 / FLAT_AIRTIME;
 
 /**
  * Can Dom get from the start to the goal in this layout? A conservative
