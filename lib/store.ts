@@ -112,7 +112,7 @@ export const useProgressStore = create<ProgressState>()(
 );
 
 /** Review mode: every level is open. Set back to false to restore in-order unlocking. */
-export const UNLOCK_ALL_LEVELS = true;
+export const UNLOCK_ALL_LEVELS = false;
 
 /**
  * Levels unlock in order. A level you've already completed always stays
