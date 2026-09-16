@@ -12,6 +12,7 @@ import { cloudTexture } from "@/lib/textures";
 import { SCALE, STAGE_HEIGHT, STAGE_WIDTH } from "@/lib/constants";
 import { Platform } from "./Platform";
 import { Player } from "./Player";
+import { Effects } from "./Effects";
 
 function seeded(n: number) {
   const x = Math.sin(n * 91.3 + 17.7) * 43758.5453;
@@ -299,6 +300,7 @@ export function Scene3D() {
       ))}
 
       <Player />
+      <Effects />
 
       <EffectComposer multisampling={0}>
         <N8AO aoRadius={1.1} intensity={2.2} distanceFalloff={1.2} quality="medium" halfRes />

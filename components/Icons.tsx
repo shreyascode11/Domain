@@ -53,6 +53,11 @@ export const IconSite = (p: P) => (
     <path d="M7 13h6M7 16h10" />
   </Svg>
 );
+export const IconFlame = (p: P) => (
+  <Svg {...p}>
+    <path d="M12 3c2.5 3.2 5.5 5.6 5.5 10a5.5 5.5 0 0 1-11 0c0-2.2 1-3.9 2.3-5.2.3 1.6 1 2.7 2.2 3.2C10.6 8.6 11 5.9 12 3Z" />
+  </Svg>
+);
 export const IconMap = (p: P) => (
   <Svg {...p}>
     <path d="m9 4-6 2v14l6-2 6 2 6-2V4l-6 2-6-2Z" />

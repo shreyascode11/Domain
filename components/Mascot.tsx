@@ -12,6 +12,8 @@ export type MascotMotion = {
   /** Seconds since the last jump / landing, for squash & stretch. */
   sinceJump: number;
   sinceLand: number;
+  /** Seconds into the level-clear celebration, or null when not celebrating. */
+  cheer: number | null;
 };
 
 // Rich 3D chitin color palette
@@ -146,8 +148,9 @@ export const Mascot = forwardRef<THREE.Group, { motion: RefObject<MascotMotion> 
       const a = anim.current;
       a.t += dt;
 
+      const cheer = m.cheer;
       const speed = Math.abs(m.vx);
-      const walking = m.grounded && speed > 0.25;
+      const walking = m.grounded && speed > 0.25 && cheer === null;
       a.walk += dt * (walking ? 7 + speed * 2.8 : 0);
 
       // True 3D Y-axis rotation: facing right = 0, facing left = Math.PI
@@ -187,9 +190,11 @@ export const Mascot = forwardRef<THREE.Group, { motion: RefObject<MascotMotion> 
         squash.current.scale.z = sXZ;
       }
 
-      // Body bob and forward sprint tilt
+      // Body bob and forward sprint tilt — little hops while celebrating.
       if (bodyBob.current) {
-        const bob = walking
+        const bob = cheer !== null
+          ? Math.abs(Math.sin(cheer * 9)) * 0.3
+          : walking
           ? Math.abs(Math.sin(a.walk * 2)) * 0.045
           : Math.sin(a.t * 2.4) * 0.015;
         bodyBob.current.position.y = bob;
@@ -212,7 +217,11 @@ export const Mascot = forwardRef<THREE.Group, { motion: RefObject<MascotMotion> 
       legs.current.forEach((leg, i) => {
         if (!leg) return;
         const cfg = LEG_CONFIG[i];
-        if (walking) {
+        if (cheer !== null) {
+          // Legs kick out on every hop.
+          leg.rotation.z = THREE.MathUtils.lerp(leg.rotation.z, 0.5 + Math.sin(cheer * 9 + cfg.phase) * 0.35, dt * 14);
+          leg.position.y = 0.42;
+        } else if (walking) {
           const stride = Math.sin(a.walk * 2 + cfg.phase);
           const lift = Math.max(0, Math.cos(a.walk * 2 + cfg.phase)) * 0.25;
           leg.rotation.z = stride * 0.48;
@@ -237,7 +246,7 @@ export const Mascot = forwardRef<THREE.Group, { motion: RefObject<MascotMotion> 
           Math.sin(a.t * 1.8) * 0.04 + (walking ? 0.05 : 0);
       }
       const sway =
-        Math.sin(a.t * 3.5) * 0.14 + (walking ? Math.sin(a.walk * 2) * 0.12 : 0) - m.vy * 0.02;
+        Math.sin(a.t * 3.5) * 0.14 + (walking ? Math.sin(a.walk * 2) * 0.12 : 0) - m.vy * 0.02 + (cheer !== null ? Math.sin(cheer * 14) * 0.5 : 0);
       if (antennaL.current) antennaL.current.rotation.z = 0.38 + sway;
       if (antennaR.current) antennaR.current.rotation.z = 0.28 + sway * 0.85;
 

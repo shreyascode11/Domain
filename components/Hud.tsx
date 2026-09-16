@@ -98,6 +98,53 @@ function GuideBubble() {
   );
 }
 
+/** The moment you land on the goal, before the debrief opens. */
+function LevelClear() {
+  const celebrating = useLevelStore((s) => s.celebrating);
+  const concept = useLevelStore((s) => LEVELS[s.levelIndex].concept);
+  if (!celebrating) return null;
+  return (
+    <div role="status" className="pointer-events-none absolute inset-x-0 top-[28%] flex justify-center">
+      <div className="level-clear text-center">
+        <div className="hud-label text-[12px] tracking-[0.4em] text-teal-300">Lesson complete</div>
+        <div className="title-inscription font-display text-5xl font-black tracking-[0.12em] sm:text-6xl">Level Clear</div>
+        <div className="mt-1 font-mono text-[13px] text-gold-200">{concept}</div>
+      </div>
+    </div>
+  );
+}
+
+/** Announces that an edit has made the goal reachable. */
+function PathOpenToast() {
+  const token = useLevelStore((s) => s.pathOpenToken);
+  const celebrating = useLevelStore((s) => s.celebrating);
+  const [hiddenToken, setHiddenToken] = useState(0);
+  useEffect(() => {
+    if (!token) return;
+    const t = setTimeout(() => setHiddenToken(token), 3400);
+    return () => clearTimeout(t);
+  }, [token]);
+  if (!token || token === hiddenToken || celebrating) return null;
+  return (
+    <div role="status" key={token} className="path-open pointer-events-none absolute left-1/2 top-[26%] -translate-x-1/2">
+      <div className="panel flex items-center gap-3 px-4 py-2.5">
+        <span className="path-open-gem" aria-hidden />
+        <div>
+          <div className="hud-label text-[11px] text-jade-400">Your code worked</div>
+          <div className="font-display text-[16px] font-bold text-gold-200">The way is open — walk to the goal</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** A brief flash when Dom falls off the world. */
+function FallFlash() {
+  const token = useLevelStore((s) => s.fallToken);
+  if (!token) return null;
+  return <div key={token} className="fall-flash pointer-events-none absolute inset-0" aria-hidden />;
+}
+
 function Step({ done, children }: { done: boolean; children: ReactNode }) {
   return (
     <span className={`flex items-center gap-1.5 ${done ? "text-jade-400" : "text-ink-200"}`}>
@@ -228,6 +275,9 @@ export function Hud({ typing }: { typing: boolean }) {
       )}
 
       <GuideBubble />
+      <PathOpenToast />
+      <LevelClear />
+      <FallFlash />
     </div>
   );
 }

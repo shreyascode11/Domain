@@ -11,10 +11,16 @@ import { BODY, newBody, resettle, solidsFrom, spawnOn, step, type Body } from "@
 import { cameraInput } from "@/lib/input";
 import { Mascot, type MascotMotion } from "./Mascot";
 import { sound } from "@/lib/audio";
+import { fx } from "@/lib/fx";
+import { goalReachable } from "@/lib/reach";
 
 const SUBSTEP = 1 / 120;
 /** How much of the level, in world units, the camera keeps in view across. */
 const VIEW_WIDTH = 12.5;
+/** How long the level-clear celebration plays before the debrief. */
+const CELEBRATION_SECONDS = 1.7;
+/** An opened path must stay open this long before it's announced (skips mid-animation frames). */
+const PATH_SETTLE_SECONDS = 0.3;
 
 /**
  * The camera keeps the page's left and right as the screen's left and right,
@@ -38,7 +44,7 @@ type BotInput = (s: { x: number; feet: number; grounded: boolean; objects: World
 export function Player() {
   const group = useRef<THREE.Group>(null);
   const body = useRef<Body>(newBody(0, -50));
-  const motion = useRef<MascotMotion>({ vx: 0, vy: 0, grounded: true, facing: 1, sinceJump: 9, sinceLand: 9 });
+  const motion = useRef<MascotMotion>({ vx: 0, vy: 0, grounded: true, facing: 1, sinceJump: 9, sinceLand: 9, cheer: null });
   const controls = useKeyboardControls();
 
   const spawnedFor = useRef<number | null>(null);
@@ -47,6 +53,10 @@ export function Player() {
   const prevJump = useRef(false);
   const pendingJump = useRef(false);
   const accumulator = useRef(0);
+  const clock = useRef(0);
+  const celebration = useRef<{ token: number; since: number } | null>(null);
+  const reach = useRef({ revision: -1, open: false, openSince: 0 });
+  const shakeOffset = useRef(new THREE.Vector3());
 
   const cam = useRef({
     focus: new THREE.Vector3(),
@@ -62,6 +72,7 @@ export function Player() {
     const solids = solidsFrom(s.worldObjects);
     const camera = state.camera as THREE.PerspectiveCamera;
     const dt = Math.min(rawDelta, 0.1);
+    clock.current += dt;
 
     const toStart = () => {
       const start = solids.find((o) => o.isStart);
@@ -79,6 +90,10 @@ export function Player() {
       seenRevision.current = s.worldRevision;
       seenRespawn.current = s.respawnToken;
       cam.current.ready = false; // cut, don't pan, to a new level
+      celebration.current = null;
+      const open = goalReachable(s.worldObjects);
+      reach.current = { revision: s.worldRevision, open, openSince: clock.current };
+      s.setPathOpen(open, false);
     }
 
     // 2. Respawn button.
@@ -86,6 +101,7 @@ export function Player() {
       seenRespawn.current = s.respawnToken;
       seenRevision.current = s.worldRevision;
       toStart();
+      fx.emit({ kind: "poof", x: body.current.x, y: body.current.y });
     }
 
     // 3. The page changed under Dom (an edit, a script, a transition frame).
@@ -94,12 +110,27 @@ export function Player() {
       if (resettle(body.current, solids) === "to-start") toStart();
     }
 
+    // Did the latest edit open (or close) the way to the goal?
+    if (reach.current.revision !== s.worldRevision) {
+      const open = goalReachable(s.worldObjects);
+      if (open && !reach.current.open) reach.current.openSince = clock.current;
+      reach.current.open = open;
+      reach.current.revision = s.worldRevision;
+      if (!open && s.pathOpen !== false) s.setPathOpen(false, false);
+    }
+    if (reach.current.open && s.pathOpen === false && s.phase === "playing" && clock.current - reach.current.openSince >= PATH_SETTLE_SECONDS) {
+      s.setPathOpen(true, true);
+      sound.pathOpen();
+      const goal = solids.find((o) => o.isGoal);
+      if (goal) fx.emit({ kind: "beacon", x: (goal.l + goal.r) / 2, y: goal.top });
+    }
+
     const b = body.current;
 
     // Input: keyboard/touch, or the dev-only test bot.
     let keys: Partial<ControlState> = controls.current;
     const bot = process.env.NODE_ENV !== "production" ? (window as unknown as { __domainBot?: BotInput }).__domainBot : undefined;
-    if (s.phase !== "playing") keys = {};
+    if (s.phase !== "playing" || s.celebrating) keys = {};
     else if (bot) keys = bot({ x: b.x, feet: b.y, grounded: b.grounded, objects: s.worldObjects });
 
     const jumpHeld = !!keys.jump;
@@ -115,16 +146,21 @@ export function Player() {
     const m = motion.current;
     while (accumulator.current >= SUBSTEP) {
       accumulator.current -= SUBSTEP;
+      const fallSpeed = -b.vy;
       const ev = step(b, { move, jumpPressed: pendingJump.current, jumpHeld }, solids, SUBSTEP);
       pendingJump.current = false;
       if (ev.jumped) {
         m.sinceJump = 0;
         sound.jump();
         s.noteJumped();
+        fx.emit({ kind: "dust", x: b.x, y: b.y });
       }
       if (ev.landed) {
         m.sinceLand = 0;
         sound.land();
+        const strength = THREE.MathUtils.clamp(fallSpeed / 14, 0.15, 1);
+        fx.emit({ kind: "land", x: b.x, y: b.y, strength });
+        if (strength > 0.7) fx.addShake(0.06 * strength);
       }
       if (ev.bonked) sound.bonk();
     }
@@ -139,21 +175,33 @@ export function Player() {
     if (b.y < WORLD.respawnY) {
       if (s.phase === "playing") {
         s.recordFall();
-        sound.bonk();
+        sound.fall();
+        fx.addShake(0.22);
       }
       toStart();
       cam.current.ready = false;
+      fx.emit({ kind: "poof", x: body.current.x, y: body.current.y });
     }
 
     const now = body.current;
     group.current?.position.set(now.x, now.y, 0);
 
-    // The objective evaluator (§9.2): standing on the goal.
-    if (s.phase === "playing" && now.grounded && now.groundKey) {
-      if (solids.find((o) => o.key === now.groundKey)?.isGoal) {
+    // Standing on the goal: celebrate for a moment, then show the debrief.
+    if (s.phase === "playing" && !s.celebrating && now.grounded && now.groundKey) {
+      const goal = solids.find((o) => o.key === now.groundKey);
+      if (goal?.isGoal) {
+        s.beginCelebration();
+        celebration.current = { token: s.levelLoadToken, since: clock.current };
         sound.goal();
-        s.completeLevel();
+        fx.emit({ kind: "confetti", x: now.x, y: goal.top });
+        fx.addShake(0.08);
       }
+    }
+    const party = celebration.current;
+    m.cheer = party && s.celebrating ? clock.current - party.since : null;
+    if (party && s.celebrating && party.token === s.levelLoadToken && clock.current - party.since >= CELEBRATION_SECONDS) {
+      celebration.current = null;
+      s.completeLevel();
     }
 
     // ——— Camera ———
@@ -170,7 +218,10 @@ export function Player() {
     const aspect = state.size.width / Math.max(1, state.size.height);
     const halfFov = THREE.MathUtils.degToRad(camera.fov / 2);
     const fit = VIEW_WIDTH / (2 * Math.tan(halfFov) * aspect);
-    const distance = THREE.MathUtils.clamp(fit, 8, 20) * cameraInput.zoom;
+    // During the celebration the camera eases in on Dom.
+    const partyT = party && s.celebrating ? Math.min(1, (clock.current - party.since) / 0.9) : 0;
+    const pushIn = 1 - 0.38 * (1 - (1 - partyT) ** 3);
+    const distance = THREE.MathUtils.clamp(fit, 8, 20) * cameraInput.zoom * pushIn;
 
     // Look a little ahead of the way Dom faces; follow height gently, so a
     // jump doesn't yank the view.
@@ -198,6 +249,15 @@ export function Player() {
       c.focus.y + distance * Math.sin(pitch),
       distance * Math.cos(yaw) * Math.cos(pitch)
     );
+    // Shake: a quick, decaying jitter for falls and hard landings.
+    if (fx.shake > 0.001) {
+      const k = fx.shake;
+      shakeOffset.current.set((Math.random() - 0.5) * k, (Math.random() - 0.5) * k, 0);
+      camera.position.add(shakeOffset.current);
+      fx.shake *= Math.exp(-dt * 9);
+    } else {
+      fx.shake = 0;
+    }
     camera.lookAt(c.focus.x, c.focus.y, 0);
   });
 

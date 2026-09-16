@@ -5,6 +5,7 @@ import type { WorldObject } from "./layout";
 import { diffCss, type CssIssue } from "./cssParse";
 import type { ConsoleLine } from "./jsRun";
 import { countMatches } from "./stage";
+import { XP, dayKey, isYesterday, rankFor } from "./ranks";
 
 export type Phase = "intro" | "playing" | "debrief" | "chapter-complete";
 export type PanelTab = "learn" | FileKind;
@@ -18,6 +19,15 @@ export type LevelResult = {
   assisted: boolean;
   note?: string;
   changes: Change[];
+  /** XP earned by this completion (0 on a replay that improved nothing). */
+  xp: number;
+  /** Total XP before this completion, for the debrief's progress bar. */
+  xpBefore: number;
+  /** A new rank reached by this completion. */
+  rankUp: string | null;
+  /** The streak after this completion, and whether it grew today. */
+  streak: number;
+  streakGrew: boolean;
 };
 
 export type LevelProgress = { completed: boolean; gold: boolean; assisted: boolean };
@@ -27,11 +37,16 @@ export type LevelProgress = { completed: boolean; gold: boolean; assisted: boole
 /* server render and the first client render agree.                   */
 /* ------------------------------------------------------------------ */
 
+export type Award = { xp: number; xpBefore: number; rankUp: string | null; streak: number; streakGrew: boolean };
+
 type ProgressState = {
   levels: Record<string, LevelProgress>;
   seenChapterIntro: Record<number, boolean>;
   seenControls: boolean;
-  record: (levelId: string, result: LevelProgress) => void;
+  xp: number;
+  /** Days in a row with at least one lesson finished. */
+  streak: { count: number; last: string | null };
+  record: (levelId: string, result: LevelProgress) => Award;
   markChapterIntroSeen: (chapter: number) => void;
   markControlsSeen: () => void;
   clear: () => void;
@@ -39,33 +54,59 @@ type ProgressState = {
 
 export const useProgressStore = create<ProgressState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       levels: {},
       seenChapterIntro: {},
       seenControls: false,
-      record: (levelId, result) =>
-        set((s) => {
-          const prev = s.levels[levelId];
-          return {
-            levels: {
-              ...s.levels,
-              [levelId]: {
-                completed: true,
-                // Keep the best result you've ever had on a level.
-                gold: result.gold || !!prev?.gold,
-                assisted: prev ? prev.assisted && result.assisted : result.assisted,
-              },
+      xp: 0,
+      streak: { count: 0, last: null },
+      record: (levelId, result) => {
+        const s = get();
+        const prev = s.levels[levelId];
+        const today = dayKey();
+        const streakGrew = s.streak.last !== today;
+        const streak = !streakGrew ? s.streak.count : s.streak.last && isYesterday(s.streak.last) ? s.streak.count + 1 : 1;
+        // XP only for something new: a first clear, a first gold, a new streak day.
+        let xp = 0;
+        if (!prev?.completed) xp += XP.firstClear;
+        if (result.gold && !prev?.gold) xp += XP.firstGold;
+        if (streakGrew && streak > 1) xp += XP.streakDay;
+        const before = rankFor(s.xp);
+        const after = rankFor(s.xp + xp);
+        set({
+          xp: s.xp + xp,
+          streak: { count: streak, last: today },
+          levels: {
+            ...s.levels,
+            [levelId]: {
+              completed: true,
+              // Keep the best result you've ever had on a level.
+              gold: result.gold || !!prev?.gold,
+              assisted: prev ? prev.assisted && result.assisted : result.assisted,
             },
-          };
-        }),
+          },
+        });
+        return { xp, xpBefore: s.xp, rankUp: after.index > before.index ? after.name : null, streak, streakGrew };
+      },
       markChapterIntroSeen: (chapter) => set((s) => ({ seenChapterIntro: { ...s.seenChapterIntro, [chapter]: true } })),
       markControlsSeen: () => set({ seenControls: true }),
-      clear: () => set({ levels: {}, seenChapterIntro: {}, seenControls: false }),
+      clear: () => set({ levels: {}, seenChapterIntro: {}, seenControls: false, xp: 0, streak: { count: 0, last: null } }),
     }),
     {
       name: "domain-progress-v1",
       storage: createJSONStorage(() => localStorage),
       skipHydration: true,
+      version: 1,
+      // Progress saved before XP existed: credit what was already earned.
+      migrate: (persisted, version) => {
+        const state = persisted as Partial<ProgressState>;
+        if (version < 1) {
+          const levels = state.levels ?? {};
+          const xp = Object.values(levels).reduce((sum, l) => sum + (l.completed ? XP.firstClear : 0) + (l.gold ? XP.firstGold : 0), 0);
+          return { ...state, xp, streak: { count: 0, last: null } } as ProgressState;
+        }
+        return state as ProgressState;
+      },
     }
   )
 );
@@ -176,6 +217,17 @@ type LevelState = {
   respawnToken: number;
   respawn: () => void;
 
+  /** Standing on the goal: a short celebration before the debrief. */
+  celebrating: boolean;
+  beginCelebration: () => void;
+  /** Bumped each time Dom falls off the world. */
+  fallToken: number;
+  /** Whether the goal is currently reachable; null until the level is measured. */
+  pathOpen: boolean | null;
+  /** Bumped when an edit turns a blocked layout into a crossable one. */
+  pathOpenToken: number;
+  setPathOpen: (open: boolean, announce: boolean) => void;
+
   selectedKey: string | null;
   select: (key: string | null) => void;
   hoveredKey: string | null;
@@ -279,6 +331,8 @@ export const useLevelStore = create<LevelState>((set, get) => ({
       result: null,
       hintRung: 0,
       falls: 0,
+      celebrating: false,
+      pathOpen: null,
       guideDismissed: false,
       flatten: false,
       selectedKey: null,
@@ -305,6 +359,8 @@ export const useLevelStore = create<LevelState>((set, get) => ({
       result: null,
       phase: "playing",
       falls: 0,
+      celebrating: false,
+      pathOpen: null,
       selectedKey: null,
     }));
   },
@@ -319,9 +375,10 @@ export const useLevelStore = create<LevelState>((set, get) => ({
       level.edit === "css"
         ? diffCss(level.css, s.appliedCss).map((c) => ({ kind: "css" as const, ...c }))
         : lineChanges(level.edit, level.edit === "html" ? level.html : level.js ?? "", level.edit === "html" ? s.appliedHtml : s.ranJs);
-    const result: LevelResult = { gold: rubric.gold && !assisted, assisted, note: rubric.note, changes };
-    useProgressStore.getState().record(level.id, { completed: true, gold: result.gold, assisted });
-    set({ phase: "debrief", result, selectedKey: null, flatten: false });
+    const gold = rubric.gold && !assisted;
+    const award = useProgressStore.getState().record(level.id, { completed: true, gold, assisted });
+    const result: LevelResult = { gold, assisted, note: rubric.note, changes, ...award };
+    set({ phase: "debrief", result, selectedKey: null, flatten: false, celebrating: false });
   },
 
   nextLevel: () => {
@@ -338,7 +395,14 @@ export const useLevelStore = create<LevelState>((set, get) => ({
   hintRung: 0,
   revealHint: () => set((s) => ({ hintRung: Math.min(5, s.hintRung + 1), guideDismissed: true })),
   falls: 0,
-  recordFall: () => set((s) => ({ falls: s.falls + 1 })),
+  recordFall: () => set((s) => ({ falls: s.falls + 1, fallToken: s.fallToken + 1 })),
+
+  celebrating: false,
+  beginCelebration: () => set({ celebrating: true, selectedKey: null }),
+  fallToken: 0,
+  pathOpen: null,
+  pathOpenToken: 0,
+  setPathOpen: (open, announce) => set((s) => ({ pathOpen: open, pathOpenToken: announce ? s.pathOpenToken + 1 : s.pathOpenToken })),
   guideDismissed: false,
   dismissGuide: () => set({ guideDismissed: true }),
 

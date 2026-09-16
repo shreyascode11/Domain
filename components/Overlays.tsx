@@ -6,7 +6,9 @@ import { useLevelStore, useProgressStore, type Change } from "@/lib/store";
 import { CHAPTERS, LEVELS, chapterOf, levelsIn } from "@/lib/levels";
 import { Code } from "./Code";
 import { DomFace, Seal } from "./Emblems";
-import { IconArrow, IconCheck, IconSite, IconX } from "./Icons";
+import { IconArrow, IconCheck, IconFlame, IconSite, IconX } from "./Icons";
+import { rankFor } from "@/lib/ranks";
+import { sound } from "@/lib/audio";
 import { WorldMap } from "./WorldMap";
 import { SiteGrowth } from "./SiteBuild";
 import { SITE_NAME, SITE_STEPS } from "@/lib/site";
@@ -247,6 +249,63 @@ function Quiz() {
   );
 }
 
+/** XP earned, rank progress and the streak — with a count-up and a fanfare on rank-up. */
+function Rewards({ xp, xpBefore, rankUp, streak, streakGrew }: { xp: number; xpBefore: number; rankUp: string | null; streak: number; streakGrew: boolean }) {
+  const [shown, setShown] = useState(0);
+  useEffect(() => {
+    if (xp <= 0) return;
+    const started = performance.now();
+    let frame = 0;
+    const tick = () => {
+      const t = Math.min(1, (performance.now() - started) / 900);
+      setShown(Math.round(xp * (1 - (1 - t) ** 3)));
+      if (t < 1) frame = requestAnimationFrame(tick);
+    };
+    const delay = setTimeout(() => (frame = requestAnimationFrame(tick)), 350);
+    return () => {
+      clearTimeout(delay);
+      cancelAnimationFrame(frame);
+    };
+  }, [xp]);
+  useEffect(() => {
+    if (!rankUp) return;
+    const t = setTimeout(() => sound.rankUp(), 900);
+    return () => clearTimeout(t);
+  }, [rankUp]);
+
+  const total = xpBefore + shown;
+  const rank = rankFor(total);
+  return (
+    <section className="mb-5 grid gap-3 sm:grid-cols-[auto_1fr_auto] sm:items-center">
+      <div className={`flex items-baseline gap-1.5 ${xp > 0 ? "xp-pop" : ""}`}>
+        <span className="font-display text-3xl font-black text-gold-300">+{shown}</span>
+        <span className="hud-label text-[12px] text-gold-400">XP</span>
+      </div>
+      <div className="min-w-0">
+        <div className="hud-label flex items-baseline justify-between gap-2 text-[11px]">
+          <span className="text-teal-300">{rank.name}</span>
+          <span className="text-ink-400">{rank.next ? `${total.toLocaleString()} / ${rank.next.xp.toLocaleString()} XP` : `${total.toLocaleString()} XP · top rank`}</span>
+        </div>
+        <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-ink-700">
+          <div className="h-full rounded-full bg-linear-to-r from-teal-500 via-gold-400 to-ember-400 transition-[width] duration-200" style={{ width: `${Math.round(rank.progress * 100)}%` }} />
+        </div>
+        {xp === 0 && <p className="mt-1 text-[12.5px] text-ink-400">No new XP on a replay — earn the gold seal for a bonus.</p>}
+      </div>
+      <div className={`flex items-center gap-1.5 ${streakGrew ? "text-ember-300" : "text-ink-300"}`} title="Days in a row with a finished lesson">
+        <IconFlame size={18} />
+        <span className="font-display text-xl font-bold">{streak}</span>
+        <span className="hud-label text-[11px]">day{streak === 1 ? "" : "s"}</span>
+      </div>
+      {rankUp && (
+        <div className="xp-pop rounded-md border border-gold-400/50 bg-gold-400/10 px-4 py-2 text-center sm:col-span-3">
+          <span className="hud-label text-[11px] text-gold-400">New rank</span>
+          <div className="font-display text-xl font-bold text-gold-200">{rankUp}</div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function DebriefOverlay() {
   const levelIndex = useLevelStore((s) => s.levelIndex);
   const result = useLevelStore((s) => s.result);
@@ -280,6 +339,8 @@ export function DebriefOverlay() {
         </div>
 
         <div className="rule-ornament my-5" />
+
+        <Rewards xp={result.xp} xpBefore={result.xpBefore} rankUp={result.rankUp} streak={result.streak} streakGrew={result.streakGrew} />
 
         <SiteGrowth levelId={level.id} />
 

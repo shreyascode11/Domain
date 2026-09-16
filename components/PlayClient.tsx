@@ -9,7 +9,8 @@ import { CodePanel } from "./CodePanel";
 import { Inspector } from "./Inspector";
 import { IntroOverlay, DebriefOverlay, ChapterCompleteOverlay, LevelMap } from "./Overlays";
 import { SiteOverlay } from "./SiteBuild";
-import { IconMap, IconMute, IconSite, IconSound } from "./Icons";
+import { IconFlame, IconMap, IconMute, IconSite, IconSound } from "./Icons";
+import { rankFor, dayKey, isYesterday } from "@/lib/ranks";
 import { useLevelStore, useProgressStore, firstIncompleteIndex, isUnlocked } from "@/lib/store";
 import { CHAPTERS, LEVELS, chapterOf, levelsIn } from "@/lib/levels";
 import { STAGE_WIDTH, STAGE_HEIGHT } from "@/lib/constants";
@@ -18,6 +19,30 @@ import { isTypingTarget } from "@/hooks/useKeyboardControls";
 import { sound } from "@/lib/audio";
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+/** Your builder rank, XP toward the next one, and the daily streak. */
+function RankChip() {
+  const xp = useProgressStore((s) => s.xp);
+  const streak = useProgressStore((s) => s.streak);
+  const rank = rankFor(xp);
+  // A streak only counts if you played today or yesterday.
+  const alive = streak.last !== null && (streak.last === dayKey() || isYesterday(streak.last));
+  const days = alive ? streak.count : 0;
+  return (
+    <div className="hidden items-center gap-3 lg:flex" title={rank.next ? `${xp} / ${rank.next.xp} XP to ${rank.next.name}` : `${xp} XP`}>
+      <div className="flex w-28 flex-col gap-1">
+        <div className="hud-label truncate text-[10px] text-teal-300">{rank.name}</div>
+        <div className="h-1.5 overflow-hidden rounded-full bg-ink-700">
+          <div className="h-full rounded-full bg-linear-to-r from-teal-500 to-gold-400" style={{ width: `${Math.round(rank.progress * 100)}%` }} />
+        </div>
+      </div>
+      <span className={`flex items-center gap-1 ${days > 0 ? "text-ember-300" : "text-ink-500"}`} aria-label={`${days}-day streak`}>
+        <IconFlame size={15} />
+        <span className="hud-label text-[12px]">{days}</span>
+      </span>
+    </div>
+  );
+}
 
 function TouchButton({ label, input, children }: { label: string; input: keyof typeof touchInput; children: React.ReactNode }) {
   const set = (on: boolean) => (e: ReactPointerEvent) => {
@@ -213,6 +238,7 @@ export function PlayClient() {
           <span className="hud-label text-[12px] text-ink-300">
             {completed}/{LEVELS.length}
           </span>
+          {hydrated && <RankChip />}
           <button
             onClick={(e) => {
               const next = sound.toggleMute();

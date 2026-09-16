@@ -250,6 +250,70 @@ class SoundEngine {
     });
   }
 
+  /** An edit opened the way to the goal: a bright, rising shimmer. */
+  public pathOpen() {
+    if (this.muted) return;
+    this.init();
+    if (!this.ctx) return;
+    const notes = [659.25, 830.61, 987.77, 1318.51];
+    notes.forEach((freq, i) => {
+      if (!this.ctx) return;
+      const t = this.ctx.currentTime + i * 0.07;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(freq, t);
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.12, t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.7);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.7);
+    });
+  }
+
+  /** Falling off the world: a descending whoosh. */
+  public fall() {
+    if (this.muted) return;
+    this.init();
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = "triangle";
+    osc.frequency.setValueAtTime(520, t);
+    osc.frequency.exponentialRampToValueAtTime(90, t + 0.35);
+    gain.gain.setValueAtTime(0.14, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.38);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(t);
+    osc.stop(t + 0.38);
+  }
+
+  /** A new builder rank: a fuller, two-phrase fanfare. */
+  public rankUp() {
+    if (this.muted) return;
+    this.init();
+    if (!this.ctx) return;
+    const phrase = [523.25, 659.25, 783.99, 1046.5, 783.99, 1046.5, 1318.51];
+    phrase.forEach((freq, i) => {
+      if (!this.ctx) return;
+      const t = this.ctx.currentTime + i * 0.11;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = i < 4 ? "triangle" : "sine";
+      osc.frequency.setValueAtTime(freq, t);
+      gain.gain.setValueAtTime(0.16, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + (i === phrase.length - 1 ? 1.1 : 0.4));
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(t);
+      osc.stop(t + 1.1);
+    });
+  }
+
   /** Button / UI click */
   public click() {
     if (this.muted) return;
