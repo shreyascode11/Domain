@@ -36,7 +36,7 @@ export function SitePreview({ done, spotlight, height = 360, className = "" }: P
   }, []);
 
   return (
-    <div className={`overflow-hidden rounded-xl border border-white/15 bg-[#1c1a2e] shadow-[0_20px_50px_-20px_rgba(0,0,0,0.8)] ${className}`}>
+    <div className={`w-full min-w-0 overflow-hidden rounded-xl border border-white/15 bg-[#1c1a2e] shadow-[0_20px_50px_-20px_rgba(0,0,0,0.8)] ${className}`}>
       <div className="flex items-center gap-2 border-b border-white/10 bg-[#2a2740] px-3 py-2">
         <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" />
         <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" />

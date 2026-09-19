@@ -58,7 +58,7 @@ As you finish lessons you also build a real website, the **Anthill Bakery**. It 
 
 <table>
 <tr>
-<td width="50%"><img src="docs/screenshots/hero.jpg" alt="The DOMAIN landing page: a twilight sky with floating islands" width="100%"><br><em>Every course starts somewhere. This one starts in the clouds.</em></td>
+<td width="50%"><img src="docs/screenshots/hero.jpg" alt="The DOMAIN landing page: a blueprint grid, the headline, and a live CSS demo" width="100%"><br><em>The landing page proves the mechanic: change a property, watch the ground move.</em></td>
 <td width="50%"><img src="docs/screenshots/site.jpg" alt="The website you build, with a checklist of pieces earned" width="100%"><br><em>The website you build, one piece per lesson.</em></td>
 </tr>
 </table>

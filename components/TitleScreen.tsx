@@ -1,21 +1,31 @@
 "use client";
 
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { CHAPTERS, LEVELS, levelsIn } from "@/lib/levels";
 import { firstIncompleteIndex, useProgressStore } from "@/lib/store";
 import { DomFace, GuidePortrait } from "./Emblems";
-import { IconArrow } from "./Icons";
-import { DreamSky, PageStars } from "./DreamSky";
-import { WorldMap } from "./WorldMap";
+import { IconArrow, IconCube, IconLayers, IconSite } from "./Icons";
+import { LandingDemo } from "./LandingDemo";
 import { SiteShowcase } from "./SiteBuild";
+import { WorldMap } from "./WorldMap";
 
-const SUBJECT: Record<string, { chip: string; glow: string; bar: string }> = {
-  HTML: { chip: "text-jade-400 border-jade-400/50", glow: "rgba(91,217,154,0.55)", bar: "from-[#5bd99a] to-[#9ff7ea]" },
-  CSS: { chip: "text-gold-300 border-gold-400/50", glow: "rgba(238,208,138,0.55)", bar: "from-[#e0b85f] to-[#ffd3a1]" },
-  Flexbox: { chip: "text-[#ffb3d4] border-[#ffb3d4]/50", glow: "rgba(255,160,210,0.55)", bar: "from-[#ff9f7a] to-[#f4a6cf]" },
-  JavaScript: { chip: "text-teal-300 border-teal-400/50", glow: "rgba(125,243,225,0.55)", bar: "from-[#7df3e1] to-[#a89bff]" },
+const SUBJECT_RAIL: Record<string, string> = {
+  HTML: "#5bd99a",
+  CSS: "#e0b85f",
+  Flexbox: "#ff9f43",
+  JavaScript: "#7df3e1",
 };
+
+/** A section wrapped like an element under inspection: dashed frame, selector tag. */
+function Framed({ tag, children, id }: { tag: string; children: React.ReactNode; id?: string }) {
+  return (
+    <section id={id} className="framed scroll-mt-8">
+      <span className="framed-tag">{tag}</span>
+      {children}
+    </section>
+  );
+}
 
 export function TitleScreen() {
   const progress = useProgressStore((s) => s.levels);
@@ -30,133 +40,184 @@ export function TitleScreen() {
   const next = firstIncompleteIndex(progress);
 
   return (
-    <div className="dream-page relative min-h-screen overflow-hidden text-ink-100">
-      <PageStars />
-
-      <section className="relative flex min-h-[100svh] flex-col">
-        <DreamSky />
-
-        <header className="relative z-10 flex items-center justify-between gap-4 px-6 py-4">
-          <span className="hud-label text-[12px] text-[#d9ccff]/80">Learn to build the web by playing inside it</span>
-          <Link href="/play" className="btn btn-ghost btn-sm">
-            Play
+    <div className="blueprint relative min-h-screen text-ink-100">
+      <div className="mx-auto w-full max-w-295 px-5 sm:px-8">
+        <header className="flex items-center justify-between gap-4 border-b border-ink-700/70 py-5">
+          <Link href="/" className="flex items-center gap-3">
+            <DomFace size={34} />
+            <span className="title-inscription font-display text-xl font-black tracking-[0.24em]">DOMAIN</span>
           </Link>
+          <nav className="flex items-center gap-2">
+            <a href="#course" className="hud-label hidden px-3 text-[12px] text-ink-300 hover:text-gold-200 sm:inline">
+              Course
+            </a>
+            <a href="#build" className="hud-label hidden px-3 text-[12px] text-ink-300 hover:text-gold-200 sm:inline">
+              The website
+            </a>
+            <a href="#map" className="hud-label hidden px-3 text-[12px] text-ink-300 hover:text-gold-200 sm:inline">
+              Map
+            </a>
+            <Link href="/play" className="btn btn-ghost btn-sm">
+              Play
+            </Link>
+          </nav>
         </header>
 
-        <div className="relative z-10 mx-auto flex max-w-3xl flex-1 flex-col items-center justify-center px-6 pb-28 text-center">
-          <div className="float-y relative">
-            <div className="absolute left-1/2 top-1/2 -z-10 h-40 w-40 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#ffd6f0]/25 blur-3xl" />
-            <DomFace size={92} />
-          </div>
-          <div className="hud-label mt-4 text-[12px] tracking-[0.35em] text-[#ffd6ea]/90">A world dreamed out of web pages</div>
-          <h1 className="title-inscription dream-title mt-2 font-display text-6xl font-black tracking-[0.2em] sm:text-8xl">DOMAIN</h1>
-          <div className="rule-ornament mt-5 w-72" />
-          <p className="mt-5 max-w-2xl text-lg leading-relaxed text-[#f1ecff] [text-shadow:0_2px_12px_rgba(20,10,50,0.8)]">
-            Every level is a real web page raised into a floating world. Each one starts broken. Learn one idea, write the code that mends it, and walk across what you built — from your first HTML tag to your first line of JavaScript.
-          </p>
+        {/* ——— Hero: the claim on the left, the proof on the right ——— */}
+        <div className="grid items-center gap-10 py-14 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] lg:py-20">
+          <div className="min-w-0">
+            <div className="measure-line hud-label text-[11px] text-teal-300">A game made of real web pages</div>
+            <h1 className="mt-5 font-display text-[clamp(2.6rem,6vw,4.4rem)] font-black leading-[1.02] tracking-[-0.01em] text-ink-100">
+              Learn to build the web
+              <span className="block text-gold-300">by walking through it.</span>
+            </h1>
+            <p className="mt-5 max-w-[46ch] text-[17px] leading-relaxed text-ink-200">
+              Every level is a live HTML document. The browser lays it out, and each element becomes a block you can stand on. The page starts broken — fix the code, and the ground rearranges under your feet.
+            </p>
 
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-            <Link href="/play" className="btn btn-gold px-7! py-3! text-base! shadow-[0_0_40px_rgba(255,200,140,0.35)]">
-              {started ? `Continue — ${LEVELS[next].title}` : "Start dreaming"} <IconArrow size={16} />
-            </Link>
-            <a href="#map" className="btn btn-ghost">
-              View the map
-            </a>
+            <div className="mt-8 flex flex-wrap items-center gap-3">
+              <Link href="/play" className="btn btn-gold px-7! py-3! text-base!">
+                {started ? `Continue — ${LEVELS[next].title}` : "Start with your first element"} <IconArrow size={16} />
+              </Link>
+              <a href="#course" className="btn btn-ghost">
+                See the 120 lessons
+              </a>
+            </div>
+
+            <dl className="mt-10 grid max-w-md grid-cols-3 gap-px overflow-hidden rounded-sm border border-ink-700 bg-ink-700">
+              {[
+                ["120", "lessons"],
+                ["4", "chapters"],
+                ["1", "real website"],
+              ].map(([n, label]) => (
+                <div key={label} className="bg-ink-900/80 px-4 py-3">
+                  <dt className="font-display text-2xl font-bold text-gold-200">{n}</dt>
+                  <dd className="hud-label text-[11px] text-ink-400">{label}</dd>
+                </div>
+              ))}
+            </dl>
           </div>
-          <p className="mt-3 text-[13px] text-[#e6dcff]/75">No experience needed. {LEVELS.length} short lessons, all open to explore.</p>
+
+          <div className="min-w-0">
+            <LandingDemo />
+          </div>
         </div>
 
-        <a href="#course" className="dream-scroll-cue absolute bottom-6 left-1/2 z-10 -translate-x-1/2 text-center" aria-label="Scroll to the course">
-          <span className="hud-label block text-[11px] text-[#f3e6ff]/80">Drift down</span>
-          <span className="mt-1 block text-xl text-[#f3e6ff]/80">⌄</span>
-        </a>
-      </section>
-
-      <main className="relative z-10 mx-auto flex max-w-6xl flex-col items-center px-6 pb-20">
-        <section id="course" className="w-full scroll-mt-6 pt-10 text-left" aria-labelledby="course-heading">
-          <div className="mb-6 text-center">
-            <h2 id="course-heading" className="hud-label text-[12px] tracking-[0.3em] text-[#ffc9e4]">
-              Four islands, in order
-            </h2>
-            <p className="mt-2 font-display text-3xl font-bold text-gold-200">The course</p>
+        {/* ——— What makes it different ——— */}
+        <Framed tag="<section class=&quot;how&quot;>">
+          <div className="grid gap-6 md:grid-cols-3">
+            {[
+              {
+                icon: <IconLayers size={18} />,
+                title: "The browser is the rules engine",
+                body: "Nothing about CSS is simulated. The page is measured with getBoundingClientRect, so if the browser renders it, the world matches it — flex, grid, position, the lot.",
+              },
+              {
+                icon: <IconCube size={18} />,
+                title: "Broken until your code says otherwise",
+                body: "A bridge too short, a gate that won't open, stairs in the wrong order. The fix is the lesson, and the world tells you the moment the way is open.",
+              },
+              {
+                icon: <IconSite size={18} />,
+                title: "You leave with a real website",
+                body: "Every lesson adds a piece to the Anthill Bakery: content from HTML, style from CSS, layout from flexbox, life from JavaScript.",
+              },
+            ].map((card) => (
+              <article key={card.title} className="panel-soft flex flex-col gap-2 p-5">
+                <span className="text-teal-300">{card.icon}</span>
+                <h3 className="font-display text-[17px] font-bold text-gold-200">{card.title}</h3>
+                <p className="text-[14.5px] leading-snug text-ink-300">{card.body}</p>
+              </article>
+            ))}
           </div>
-          <ol className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        </Framed>
+
+        {/* ——— The course ——— */}
+        <Framed tag="<ol class=&quot;course&quot;>" id="course">
+          <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <div className="hud-label text-[11px] text-teal-300">The course, in order</div>
+              <h2 className="font-display text-3xl font-bold text-gold-200">Four chapters, 120 lessons</h2>
+            </div>
+            <p className="max-w-[42ch] text-[14px] text-ink-300">
+              Each lesson: one idea, an annotated example, five hints when you want them, and a level you can only cross once the code is right.
+            </p>
+          </div>
+
+          <ol className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {CHAPTERS.map((c) => {
               const lessons = levelsIn(c.number);
               const done = lessons.filter((l) => progress[l.id]?.completed).length;
-              const look = SUBJECT[c.subject];
               return (
-                <li key={c.number} className="dream-card dream-card-hover flex flex-col overflow-hidden px-5 pb-5 pt-6" style={{ "--glow": look.glow } as CSSProperties}>
-                  <div className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${look.bar}`} />
-                  <div className="flex items-center justify-between">
-                    <span className={`hud-label rounded-full border px-2.5 py-0.5 text-[12px] ${look.chip}`}>
-                      {c.number} · {c.subject}
+                <li key={c.number} className="chapter-card" style={{ ["--rail" as string]: SUBJECT_RAIL[c.subject] }}>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="hud-label text-[12px]" style={{ color: SUBJECT_RAIL[c.subject] }}>
+                      {String(c.number).padStart(2, "0")} · {c.subject}
                     </span>
-                    <span className="hud-label text-[11px] text-ink-300">
-                      {hydrated ? `${done}/${lessons.length}` : `${lessons.length} lessons`}
-                    </span>
+                    <span className="font-mono text-[11px] text-ink-400">{hydrated ? `${done}/${lessons.length}` : `${lessons.length}`}</span>
                   </div>
-                  <div className="mt-3 font-display text-[17px] font-bold leading-snug text-gold-200">{c.title}</div>
-                  <p className="mt-2 flex-1 text-[14px] leading-snug text-ink-200">{c.outcome}</p>
-                  <div className="mt-4 flex flex-wrap gap-1">
-                    {lessons.slice(0, 6).map((l) => (
-                      <code key={l.id} className="code-chip text-[11px]">
-                        {l.concept}
+                  <h3 className="mt-2 font-display text-[16px] font-bold leading-snug text-gold-200">{c.title}</h3>
+                  <p className="mt-1.5 flex-1 text-[13.5px] leading-snug text-ink-300">{c.outcome}</p>
+                  <div className="mt-3 flex flex-wrap gap-1">
+                    {lessons.slice(0, 4).map((l) => (
+                      <code key={l.id} className="code-chip text-[11px]" title={l.concept}>
+                        {l.concept.length > 20 ? `${l.concept.slice(0, 19)}…` : l.concept}
                       </code>
                     ))}
-                    {lessons.length > 6 && <span className="hud-label self-center px-1 text-[11px] text-ink-400">+{lessons.length - 6} more</span>}
+                    {lessons.length > 4 && <span className="hud-label self-center px-1 text-[11px] text-ink-500">+{lessons.length - 4}</span>}
                   </div>
+                  {hydrated && done > 0 && (
+                    <div className="mt-3 h-1 overflow-hidden rounded-full bg-ink-700">
+                      <div className="h-full rounded-full" style={{ width: `${(done / lessons.length) * 100}%`, background: SUBJECT_RAIL[c.subject] }} />
+                    </div>
+                  )}
                 </li>
               );
             })}
           </ol>
-        </section>
+        </Framed>
 
-        <section className="dream-card mt-12 w-full px-6 py-8 sm:px-8" aria-label="The website you build">
+        {/* ——— The website you build ——— */}
+        <Framed tag="<section id=&quot;build&quot;>" id="build">
           <SiteShowcase hydrated={hydrated} />
-        </section>
+        </Framed>
 
-        <section className="mt-12 grid w-full gap-4 text-left sm:grid-cols-3">
-          {[
-            { k: "Learn", n: "1", t: "Each lesson explains one idea in plain words, with an annotated example and step-by-step instructions." },
-            { k: "Write code", n: "2", t: "Edit real HTML, CSS and JavaScript. The world rebuilds from your code — a half-typed line never breaks it." },
-            { k: "Check it", n: "3", t: "Walk across what you built, inspect any block like DevTools, then answer a quick question to lock it in." },
-          ].map((c) => (
-            <div key={c.k} className="dream-card flex gap-4 px-5 py-5">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-b from-[#ffe7c2] to-[#e0a0c8] font-display text-[15px] font-black text-[#3b1f4a]">
-                {c.n}
-              </span>
-              <div>
-                <div className="hud-label text-[12px] text-[#ffd3ea]">{c.k}</div>
-                <p className="mt-1 text-[15px] leading-snug text-ink-200">{c.t}</p>
-              </div>
-            </div>
-          ))}
-        </section>
-
-        <section id="map" className="mt-14 w-full scroll-mt-6">
-          <div className="mb-4 flex flex-wrap items-end justify-between gap-3 text-left">
+        {/* ——— The map ——— */}
+        <Framed tag="<nav class=&quot;map&quot;>" id="map">
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
             <div>
+              <div className="hud-label text-[11px] text-teal-300">Every lesson, one chart</div>
               <h2 className="font-display text-3xl font-bold text-gold-200">The map</h2>
-              <p className="mt-1 text-[14px] text-ink-300">Scroll, drag, or use the arrows to explore. Every lesson is open.</p>
             </div>
-            <div className="hud-label text-[13px] text-ink-300">{hydrated ? `${completed} of ${LEVELS.length} lessons complete` : ""}</div>
+            <div className="hud-label text-[12px] text-ink-400">{hydrated ? `${completed} of ${LEVELS.length} complete` : "Scroll, drag, or use the arrows"}</div>
           </div>
-          <div className="dream-card p-3">
-            <WorldMap currentIndex={hydrated ? next : undefined} />
+          <WorldMap currentIndex={hydrated ? next : undefined} />
+        </Framed>
+
+        {/* ——— Close ——— */}
+        <section className="grid gap-8 border-t border-ink-700/70 py-14 md:grid-cols-[1.2fr_1fr] md:items-center">
+          <div className="flex items-start gap-4">
+            <GuidePortrait size={52} />
+            <div>
+              <div className="hud-label text-[11px] text-gold-400">The Old Ant</div>
+              <p className="mt-1 max-w-[46ch] font-serif text-[18px] italic leading-relaxed text-ink-200">
+                &ldquo;Nobody learns to build by watching. Write one line, see what it does, then write the next.&rdquo;
+              </p>
+            </div>
+          </div>
+          <div className="md:justify-self-end">
+            <Link href="/play" className="btn btn-gold px-7! py-3! text-base!">
+              {started ? "Continue the course" : "Start from zero"} <IconArrow size={16} />
+            </Link>
+            <p className="mt-2 text-[13px] text-ink-400">Free, no account needed. Progress saves in this browser.</p>
           </div>
         </section>
 
-        <section className="dream-card mt-14 flex max-w-2xl items-start gap-4 px-6 py-5 text-left">
-          <GuidePortrait size={56} />
-          <div>
-            <div className="hud-label text-[12px] text-[#ffd3ea]">The Old Ant</div>
-            <p className="mt-1 font-serif text-[18px] italic leading-relaxed text-ink-100">
-              &ldquo;Nobody learns to build by watching. Write one line, see what it does, then write the next.&rdquo;
-            </p>
-          </div>
-        </section>
-      </main>
+        <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-ink-700/70 py-6 text-[12.5px] text-ink-500">
+          <span>© {new Date().getFullYear()} Shreyas · All rights reserved</span>
+          <span className="font-mono">the world is the document</span>
+        </footer>
+      </div>
     </div>
   );
 }

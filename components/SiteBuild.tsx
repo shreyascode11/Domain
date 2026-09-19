@@ -177,8 +177,8 @@ export function SiteShowcase({ hydrated }: { hydrated: boolean }) {
   const ids = showingFinished ? ALL_IDS : done;
   return (
     <div className="grid items-center gap-8 lg:grid-cols-[1fr_1.5fr]">
-      <div className="text-left">
-        <div className="hud-label text-[12px] tracking-[0.3em] text-[#ffc9e4]">Build a real website as you play</div>
+      <div className="min-w-0 text-left">
+        <div className="hud-label text-[12px] tracking-[0.3em] text-teal-300">Build a real website as you play</div>
         <h2 className="mt-2 font-display text-3xl font-bold text-gold-200">{SITE_NAME}</h2>
         <p className="mt-3 text-[15px] leading-relaxed text-ink-200">
           Every lesson you finish adds a piece to a real website. It starts as a blank page. HTML gives it content, CSS gives it style, flexbox arranges it, and JavaScript brings it to life.
@@ -186,7 +186,7 @@ export function SiteShowcase({ hydrated }: { hydrated: boolean }) {
         <ul className="mt-4 space-y-2 text-[14px] text-ink-200">
           {CHAPTERS.map((c) => (
             <li key={c.number} className="flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-[#ffc9e4]" />
+              <span className="h-1.5 w-1.5 rotate-45 bg-gold-400" />
               <b className="text-ink-100">{c.subject}</b> {CHAPTER_ROLE[c.subject]} · {levelsIn(c.number).length} pieces
             </li>
           ))}
@@ -202,10 +202,10 @@ export function SiteShowcase({ hydrated }: { hydrated: boolean }) {
           </div>
         )}
       </div>
-      <div className="relative">
+      <div className="relative min-w-0">
         <SitePreview done={ids} height={380} />
         {showingFinished && (
-          <span className="hud-label absolute -top-3 right-4 rounded-full bg-linear-to-r from-[#ffe7c2] to-[#e0a0c8] px-3 py-1 text-[11px] text-[#3b1f4a] shadow-lg">
+          <span className="hud-label absolute -top-3 right-4 rounded-full bg-linear-to-r from-gold-300 to-ember-400 px-3 py-1 text-[11px] text-ink-950 shadow-lg">
             What you&apos;ll have built
           </span>
         )}
